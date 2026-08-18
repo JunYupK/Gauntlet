@@ -234,8 +234,10 @@ reach(·)      해당 선택 이후 내 머리에서 flood fill로 센 도달 �
   "wins": 44, "draws": 8, "losses": 48,
   "diagnosis": [
     { "seed": 12, "turn": 87, "chose": "UP", "best": "LEFT",
-      "reachBefore": 214, "reachAfter": 31, "loss": 183 } ] }
+      "reachIfBest": 214, "reachChosen": 31, "loss": 183 } ] }
 ```
+
+`reachIfBest`는 최선 대안을 골랐을 때 닿을 수 있었던 칸 수, `reachChosen`은 실제 선택 이후 닿을 수 있는 칸 수다. 둘의 차이가 `loss`다. (초안에서는 `reachBefore`/`reachAfter`라 적었으나, 시간 순서를 뜻하는 것으로 오해되어 이름을 바꿨다)
 
 ---
 
