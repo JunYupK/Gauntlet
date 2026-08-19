@@ -693,6 +693,22 @@ G7이 시리즈 대전을 필요로 하는데 그게 tournament에 있으면 형
 
 ---
 
+### D34. superpowers를 저장소에 고정
+
+**결정.** `.claude/settings.json`을 커밋해 `superpowers@superpowers-marketplace` 플러그인을 **프로젝트 스코프**로 선언했다. 마켓플레이스 출처(`obra/superpowers-marketplace`)와 활성화 여부가 저장소 안에 남는다.
+
+**근거.** 계획 문서가 `superpowers:subagent-driven-development`, `superpowers:executing-plans`를 실행 지침으로 지목하고 있는데, 그 스킬이 개인 머신 설정에만 있으면 다른 사람이나 다른 세션에서 계획이 그대로 돌아가지 않는다. 하네스가 저장소 안에 있어야 한다는 C1의 요구는 스킬 자체에도 똑같이 적용된다.
+
+**기각한 대안**
+| 대안 | 기각 사유 |
+|---|---|
+| 사용자 스코프(`~/.claude`)에 설치 | 저장소를 클론한 다른 사람에게 전달되지 않음. 재현 가능성(R1)이 사람마다 달라짐 |
+| 스킬 파일을 `.claude/skills/`에 복사해 넣기 | 업스트림 갱신이 수동이 되고 저장소가 남의 코드로 부푼다. 버전은 마켓플레이스가 관리하게 둔다 |
+
+`.gitignore`에는 `.claude/settings.local.json`만 넣었다. 공유 설정은 커밋하고 개인 설정은 커밋하지 않는다.
+
+---
+
 ## 다음 단계
 
 - [x] 스펙 문서 작성 및 자체 검토
