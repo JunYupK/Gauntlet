@@ -883,6 +883,36 @@ G7이 시리즈 대전을 필요로 하는데 그게 tournament에 있으면 형
 
 ---
 
+### D41. Task 8 리뷰 반려 — 턴별 재구성이 여전히 이중화돼 있었고, 정면 충돌이 "안전한 수"로 보였다
+
+**배경.** D40의 판단(`Match.initialGrid` 추출, 생존자 claim 결함 발견·수정)은 리뷰에서 전부 확정됐다 — 순수 추출 검증, 진단이 복사가 아니라 호출로 규칙을 따르는 것, loss의 대칭성, flood fill의 반복 구현, 회귀 테스트의 비공허성(엔진의 `TurnObserver` 출력과 직접 대조하지 상수와 비교하지 않음) 전부 리뷰가 확인했다. 대신 두 가지를 더 고치라는 지시를 받았다.
+
+**1. 턴별 재구성 규칙이 `replayAndAnalyze`와 `replayToFinalGrid` 두 곳에 그대로 남아 있었다.** D40의 룰링은 *초기 격자* 규칙의 중복만 없앴을 뿐, *턴 진행* 규칙(초기화 → 사망 판정 → 생존자만 claim)은 여전히 두 함수에 복제돼 있었다. 그리고 이 diff 자체가 그 위험이 살아있다는 증거였다 — D40에서 찾은 생존자 claim 결함을 실제로 두 곳(`:98-99`와 `:176-177`)에서 각각 고쳐야 했다. `replayAndAnalyze`가 `MoveAnalysis` 목록과 매치 종료 시점의 최종 `Grid`를 함께 담는 private record `ReplayAnalysis(List<List<MoveAnalysis>> perBot, Grid finalGrid)`를 반환하도록 바꾸고, `replayToFinalGrid`를 통째로 지웠다. `analyze`는 이제 이 한 번의 재생에서 두 산출물을 모두 얻는다 — 재생 루프가 파일 안에 정확히 하나뿐이라 부수적으로 리플레이를 두 번 훑던 것도 없어졌다.
+
+**2. 정면 충돌(HEAD_ON_COLLISION)로 죽은 수가 loss 계산에서 "안전한 수"로 잡혔다.** `isSafe`는 이 턴 시작 시점의 벽만 본다 — 상대가 이번 턴에 같은 칸으로 동시 진입한다는 사실은 그 시점의 벽 집합엔 없으므로, 정면 충돌로 죽은 실제 선택의 `reachAfterChosen`이 양수로 나오고 `loss`는 거의 0이 되며 `suicide`는 false로 남는다. `HEAD_ON_COLLISION`은 엔진이 실제로 내는 사망 사유인데, 이 경기에서 `worstMoves`(반려 피드백이 읽는 바로 그 값)가 실제로 진 턴이 아니라 무관한 이전 턴을 "최악의 수"로 뽑아버리는 구체적 비용이 있었다. 브리프에서 물려받은 결함이라 리뷰가 직접 룰링했다.
+
+**적용한 룰링 네 가지.**
+1. **사실을 명시적으로 담는다.** `MoveAnalysis`에 `fatal` 필드를 추가했다 — 재생 루프가 이미 계산해 둔 `dead0`/`dead1`(자기 벽·상대 벽·격자 밖·정면 충돌 전부 포함)을 그대로 옮긴다. *대안* 방향에 대해서는 반사실이 필요하지만(상대가 그 상황에서 무엇을 했을지 모른다), *실제로 선택한* 방향에 대해서는 리플레이가 상대의 진짜 수를 담고 있고 엔진이 이미 그 수를 사망으로 판정했으므로 반사실이 필요 없다.
+2. **`loss`에 접지 않는다.** `reachAfterChosen`을 0으로 죽이면 완전한 정보를 가진 실제 선택(사후에 알고 보니 죽었다)과 벽만 보고 계산한 대안들을 비대칭으로 비교하게 돼, 더 나은 수가 없었는데도 양의 손실을 보고할 수 있다. `loss`는 대칭을 그대로 유지한다.
+3. **`suicideRate`에 넣지 않는다.** 스펙의 자멸률은 "그 자체로 치명적인 방향을 골랐다"(고정된 보드에서 봇 스스로 알 수 있는 것)를 잰다. 정면 충돌은 상대의 이번 턴 동시 선택에 달려 있고, 스펙 §2.1상 어떤 봇도 그 선택을 미리 볼 수 없다 — 자멸로 돌리면 스펙이 정의한 값을 부풀린다. 이 결정은 `log.md`뿐 아니라 `MoveAnalysis`의 javadoc에도 적었다(미래의 독자가 먼저 만나는 곳이므로).
+4. **`worstMoves`가 실제로 진 턴을 반드시 뽑는다.** 정렬 키를 `fatal` 우선, 그 다음 `loss`로 바꿨다 — `Comparator.comparing(MoveAnalysis::fatal).thenComparingInt(MoveAnalysis::loss).reversed()`. `limit`이 1이어도 실제로 경기를 끝낸 수가 밀려나지 않는다.
+
+**곁들여 해소한 불일치.** `MatchMetrics.reach[bot][사망턴]`이 죽은 봇에게 양의 reach를 그리고 있었다. 사망 턴엔 0으로 정했다 — 죽은 봇에게 남은 공간은 없다는 게 이 배열의 용도(화면에 실제로 남은 공간을 그린다)에 맞다. `MoveAnalysis.reachAfterChosen`은 `loss`의 대칭을 지키려고 반사실 값을 그대로 유지하므로 둘이 사망 턴에 다른 값을 낸다 — 왜 다른지 `MatchMetrics`·`MoveAnalysis` 양쪽 javadoc에 적었다.
+
+**곁들여 고친 것 둘 (지시받은 대로, 값싼 것들).**
+- `Match.initialGrid`의 javadoc이 "합쳐서 항상 4칸"이라고 임의의 `StartPositions`에 대해 잘못 단언하고 있었다 — `claimBehind`는 격자 밖 뒤 칸을 조용히 건너뛰므로, `StartPositions`의 공개 정준 생성자로 가장자리에 봇을 두면 4칸 미만일 수 있다. "최대 4칸, `StartPositions.of`는 MARGIN(≥3) 덕분에 항상 4칸"으로 정정.
+- `점유율은_자기_벽_칸수를_전체로_나눈_값이다`가 총합만 검사해, `LossAnalyzer.analyze`의 owner==0/owner==1 카운팅 루프가 뒤바뀌어도 안 걸렸다. `Match.playResult`의 `TurnObserver`로 엔진이 실제로 낸 0번 소유 칸수를 잡아 `occupancy()[0] * cells`와 대조하는 단언을 추가했다.
+
+**유보로 남긴 것 (지시받은 대로 손대지 않음).** `worstMoves`가 `loss == 0`인 항목으로 패딩하는 것과 `limit`을 검증하지 않는 것, `FloodFill.reach`가 격자 밖 머리에 대해 예외를 던지는 것, `arena-diagnostics/build.gradle`의 중복된 `testImplementation` 줄, 봇 0만 겨냥한 길이 단언.
+
+**정면 충돌을 재현한 방법.** `Match.play`는 시드 기반 공개 진입점만 있어(`StartPositions`를 직접 지정하는 오버로드는 `arena.core` 패키지 전용) 시드를 하드코딩하는 대신, "상대 쪽으로 곧장 다가가는" 봇(`towardOpponent` — 주축 우선, 막히면 부축, 그마저 막히면 아무 안전한 방향) 두 개를 맞붙여 시드 1..500을 스캔해 `HEAD_ON_COLLISION`이 나오는 첫 시드를 찾는다. 같은 범위를 스캔하므로 매번 같은 시드가 나온다(R1). 그 시드의 리플레이에서 두 봇 모두 `worstMoves(..., 1)`이 실제 사망 턴을 1위로 뽑는지, `fatal=true`·`suicide=false`인지, `MatchMetrics.reach`가 그 턴에 0인지 확인한다.
+
+**결함 재현 증거.** 두 수정 모두 되돌린 뒤 새 테스트가 실제로 실패하는 것을 확인했다: (1) `replayAndAnalyze`/`replayToFinalGrid` 이중화 결함은 D40에서 이미 재현·복구 확인됨(변경 없음, 재확인만). (2) `fatal`을 정렬 키에서 빼고 `loss`만으로 정렬하면 `정면_충돌로_죽은_수는_fatal이지만_suicide는_아니다`가 `LossAnalyzerTest.java:195`에서 FAILED — 복구 후 재확인 GREEN.
+
+**검증.** `./gradlew :arena-diagnostics:test --rerun` 11개 전부 통과(기존 10 + 신규 정면 충돌 테스트 1, 점유율 테스트는 단언 추가라 개수 불변). `./gradlew :arena-core:test --rerun` 35개 전부 통과(Match.java는 javadoc만 수정, 동작 무변경). `./gradlew test --rerun`(전체) — `arena-bots` 7 + `arena-core` 35 + `arena-diagnostics` 11 = **53개 전부 통과**. 커밋 `aadee9d`.
+
+---
+
 ## 다음 단계
 
 - [x] 스펙 문서 작성 및 자체 검토
