@@ -693,17 +693,32 @@ G7이 시리즈 대전을 필요로 하는데 그게 tournament에 있으면 형
 
 ---
 
-### D34. superpowers를 저장소에 고정
+### D34. superpowers를 저장소에 벤더링
 
-**결정.** `.claude/settings.json`을 커밋해 `superpowers@superpowers-marketplace` 플러그인을 **프로젝트 스코프**로 선언했다. 마켓플레이스 출처(`obra/superpowers-marketplace`)와 활성화 여부가 저장소 안에 남는다.
+**결정.** `obra/superpowers` v6.3.0을 `.claude/skills/superpowers/`에 **플러그인 통째로 복사해 커밋했다.** 마켓플레이스 선언(`.claude/settings.json`) 방식은 실측으로 기각했다.
 
-**근거.** 계획 문서가 `superpowers:subagent-driven-development`, `superpowers:executing-plans`를 실행 지침으로 지목하고 있는데, 그 스킬이 개인 머신 설정에만 있으면 다른 사람이나 다른 세션에서 계획이 그대로 돌아가지 않는다. 하네스가 저장소 안에 있어야 한다는 C1의 요구는 스킬 자체에도 똑같이 적용된다.
+**근거.** 계획 문서가 `superpowers:subagent-driven-development`, `superpowers:executing-plans`를 실행 지침으로 지목한다. 그 스킬이 개인 머신 설정에만 있으면 다른 사람이나 다른 세션에서 계획이 그대로 돌아가지 않는다. 하네스가 저장소 안에 있어야 한다는 C1의 요구는 스킬 자체에도 똑같이 적용되고, 세션마다 설치 명령이 필요한 구조는 R4(발표 중 라이브 환경 의존 금지)에도 걸린다.
+
+프로젝트 스킬 디렉터리 안에 `.claude-plugin/plugin.json`을 둔 폴더는 `superpowers@skills-dir` 플러그인으로 자동 로드된다. 덕분에 `superpowers:` 접두사와 SessionStart 훅이 그대로 살아 계획 문서의 지시가 문서 그대로 동작한다.
+
+**측정.** 처음에는 마켓플레이스 선언 방식을 택했다가, 그 방식이 실제로 동작하는지 재어 보고 뒤집었다.
+
+| 방식 | 새 클론에서 자동 로드 | 스킬 이름 | 훅 | 네트워크 |
+|---|---|---|---|---|
+| `.claude/settings.json`에 마켓플레이스 선언 | **✗** | `superpowers:...` | ✓ | 필요 |
+| `.claude/skills/`에 스킬 파일만 복사 | ✓ (신뢰 무관) | `brainstorming` (접두사 소실) | ✗ | 불필요 |
+| **`.claude/skills/superpowers/`에 플러그인 통째로** | **✓** (신뢰 수락 후) | `superpowers:...` | ✓ | 불필요 |
+
+선언 방식이 실패하는 이유는 `settings.json`이 **선언일 뿐 설치가 아니기** 때문이다. 설치 기록은 사용자 레벨 `~/.claude/plugins/installed_plugins.json`에 **프로젝트 경로별로** 남고 저장소를 따라가지 않는다. 브랜치를 그대로 체크아웃한 새 세션이 스스로 내린 판정이 `superpowers plugin declared but not installed`였고, 새 경로에 클론해 스킬 목록을 물어도 `NONE`이었다. 워크스페이스 신뢰를 수락시켜도 마찬가지였다.
 
 **기각한 대안**
 | 대안 | 기각 사유 |
 |---|---|
-| 사용자 스코프(`~/.claude`)에 설치 | 저장소를 클론한 다른 사람에게 전달되지 않음. 재현 가능성(R1)이 사람마다 달라짐 |
-| 스킬 파일을 `.claude/skills/`에 복사해 넣기 | 업스트림 갱신이 수동이 되고 저장소가 남의 코드로 부푼다. 버전은 마켓플레이스가 관리하게 둔다 |
+| 사용자 스코프(`~/.claude`)에 설치 | 저장소를 클론한 다른 사람에게 전달되지 않음. 재현 가능성이 사람마다 달라짐 |
+| `.claude/settings.json`에 마켓플레이스 선언 | 위 측정. 선언만으로는 설치되지 않아 세션마다 설치 명령이 필요하다. 컨테이너가 매번 새로 뜨는 환경에서는 매 세션 반복 |
+| 스킬 파일만 `.claude/skills/`에 평평하게 복사 | 신뢰 수락 없이도 뜨는 유일한 방식이지만 `superpowers:` 접두사와 SessionStart 훅을 잃는다. 스킬 내부 상호참조 9개 파일이 `superpowers:` 이름을 가리켜 어긋난다 |
+
+**대가.** 업스트림 갱신이 수동이 되고 저장소에 남의 코드 592KB가 들어온다. 갱신 절차와 고정한 커밋 해시는 `.claude/README.md`에 적었다. 첫 세션에서 워크스페이스 신뢰를 수락해야 로드된다는 조건도 남는다.
 
 `.gitignore`에는 `.claude/settings.local.json`만 넣었다. 공유 설정은 커밋하고 개인 설정은 커밋하지 않는다.
 
