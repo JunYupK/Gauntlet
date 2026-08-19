@@ -34,18 +34,17 @@ class MatchTest {
         assertEquals(DeathReason.P0_OUT_OF_BOUNDS, r.reason());
     }
 
-    @Test
-    void 판정은_순서에_의존하지_않는다() {
-        for (long seed = 1; seed <= 50; seed++) {
-            MatchResult ab = Match.playResult("a", avoid(), "b", always(Direction.UP), seed, 30, 30);
-            MatchResult ba = Match.playResult("b", always(Direction.UP), "a", avoid(), seed, 30, 30);
-
-            // 좌석을 바꿔도 "누가 이겼는가"는 같아야 한다.
-            int winnerAB = ab.winner() < 0 ? -1 : (ab.winner() == 0 ? 0 : 1);
-            int winnerBA = ba.winner() < 0 ? -1 : (ba.winner() == 0 ? 1 : 0);
-            assertEquals(winnerAB, winnerBA, "시드 " + seed + "에서 순서 의존성이 발견됐다");
-        }
-    }
+    // "판정은_순서에_의존하지_않는다"(좌석을 바꿔도 승자가 같다)는 여기서
+    // 지웠다. 그 테스트는 거짓인 속성을 주장했다 — 좌석 교대는 위치는
+    // 그대로 두고 앉는 봇만 바꾸는 것이고(스펙 §2.2, 미러링이 아니다),
+    // 두 좌석의 시작 위치·방향은 시드로부터 독립적으로 뽑힌다. 시드
+    // 1..50에서는 우연히 승자가 안 바뀌었을 뿐, 시드 402/412/423에서는
+    // 좌석을 바꾸면 실제로 승자가 바뀐다.
+    //
+    // 스펙 §2.1이 진짜로 요구하는 순서 독립성 — 한 턴 안에서 W(t)를 고정한
+    // 채 봇0을 먼저 묻든 봇1을 먼저 묻든 결과가 같다는 것 — 은
+    // MatchPropertyTest의 속성_동시_사망은_언제나_무승부다와
+    // 속성_같은_칸_동시_진입은_인덱스와_무관하게_무승부다가 대신 고정한다.
 
     @Test
     void 같은_시드와_같은_봇은_항상_같은_결과를_낸다() {

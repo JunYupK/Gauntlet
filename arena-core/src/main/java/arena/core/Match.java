@@ -24,13 +24,30 @@ public final class Match {
 
     private Match() {}
 
+    /** 턴이 끝날 때마다 호출된다. 테스트와 진단이 엔진 내부를 관찰하는 통로. */
+    @FunctionalInterface
+    public interface TurnObserver {
+        void onTurn(int turn, Grid gridAfter, Point[] heads);
+    }
+
+    private static final TurnObserver NO_OP_OBSERVER = (turn, grid, heads) -> {};
+
     public static MatchResult playResult(
             String id0, BotFunction bot0,
             String id1, BotFunction bot1,
             long seed, int width, int height) {
+        return playResult(id0, bot0, id1, bot1, seed, width, height, NO_OP_OBSERVER);
+    }
+
+    /** 관찰자를 받는 진입점. 시드로부터 배치를 뽑아 위 오버로드가 위임한다. */
+    public static MatchResult playResult(
+            String id0, BotFunction bot0,
+            String id1, BotFunction bot1,
+            long seed, int width, int height,
+            TurnObserver observer) {
 
         StartPositions sp = StartPositions.of(seed, width, height);
-        return playResult(bot0, bot1, sp, width, height);
+        return playResult(bot0, bot1, sp, width, height, observer);
     }
 
     /**
@@ -43,6 +60,13 @@ public final class Match {
     static MatchResult playResult(
             BotFunction bot0, BotFunction bot1,
             StartPositions sp, int width, int height) {
+        return playResult(bot0, bot1, sp, width, height, NO_OP_OBSERVER);
+    }
+
+    static MatchResult playResult(
+            BotFunction bot0, BotFunction bot1,
+            StartPositions sp, int width, int height,
+            TurnObserver observer) {
 
         Grid grid = new Grid(width, height);
 
@@ -85,6 +109,7 @@ public final class Match {
             // 3) 생존한 봇에 대해서만 벽을 확정한다.
             grid.claim(p0, 0);
             grid.claim(p1, 1);
+            observer.onTurn(turn, grid, new Point[]{ p0, p1 });
             head[0] = p0; head[1] = p1;
             dir[0] = d0;  dir[1] = d1;
         }
