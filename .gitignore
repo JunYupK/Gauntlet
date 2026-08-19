@@ -3,3 +3,12 @@
 
 # SDD 작업 공간 (스킬이 만드는 스크래치)
 .superpowers/
+
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+.idea/
+*.iml
+records/
+web/node_modules/
+web/.next/
