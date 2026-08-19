@@ -81,9 +81,55 @@ class MatchTest {
     }
 
     @Test
+    void 시작_칸이_벽이라_후진하면_자기_벽에_박는다_1번_자리에서도() {
+        // 위 테스트의 거울상: 반전하는 봇이 0번이 아니라 1번 자리에 있어도
+        // 사유가 P1_HIT_OWN_WALL로 정확히 배정되는지 확인한다. reasonFor()의
+        // botIndex==0/1 분기가 뒤바뀌어도(예: 상수가 전치되어도) 지금까지의
+        // 테스트만으로는 아무것도 걸리지 않는다 — 이 테스트가 그 구멍을 막는다.
+        StartPositions sp = StartPositions.of(3, 30, 30);
+        MatchResult r = Match.playResult(
+                "avoid", avoid(), "back", always(sp.d1().opposite()), 3, 30, 30);
+
+        assertEquals(0, r.winner());
+        assertEquals(DeathReason.P1_HIT_OWN_WALL, r.reason());
+        assertEquals(1, r.turns(), "첫 턴에 끝나야 한다");
+    }
+
+    @Test
+    void 양쪽이_같은_턴에_각자_다른_이유로_죽으면_BOTH_DIED다() {
+        // 둘 다 시작하자마자 반전한다 — 서로 다른 칸에서 각자 자기 벽에
+        // 부딪히므로 같은 칸으로의 동시 진입(HEAD_ON_COLLISION)이 아니라
+        // BOTH_DIED여야 한다. 이 분기도 지금까지 어떤 테스트에서도 닿지
+        // 않았다.
+        StartPositions sp = StartPositions.of(3, 30, 30);
+        MatchResult r = Match.playResult(
+                "back0", always(sp.d0().opposite()),
+                "back1", always(sp.d1().opposite()),
+                3, 30, 30);
+
+        assertEquals(-1, r.winner());
+        assertEquals(DeathReason.BOTH_DIED, r.reason());
+        assertEquals(1, r.turns(), "첫 턴에 끝나야 한다");
+    }
+
+    @Test
     void 양쪽이_같은_칸에_동시_진입하면_무승부다() {
-        // 두 봇을 마주보게 두고 서로에게 직진시킨다.
-        MatchResult r = Match.headOnForTest(30, 30);
+        // 두 봇을 마주보게 두고 서로에게 직진시킨다. 판정식을 테스트에서
+        // 다시 베끼지 않도록, Match의 실제 판정 루프를 그대로 태우는
+        // playResult(BotFunction, BotFunction, StartPositions, int, int)
+        // 오버로드를 직접 호출한다 — 시드 기반 playResult가 위임하는 바로
+        // 그 메서드다. 위치는 폭의 중앙을 기준으로 잡아, 좁은 격자에서도
+        // Grid.claim()이 범위를 벗어나지 않는다.
+        int width = 30, height = 30;
+        int y = height / 2;
+        int cx = width / 2;
+        StartPositions headOn = new StartPositions(
+                new Point(cx - 3, y), Direction.RIGHT,
+                new Point(cx + 3, y), Direction.LEFT);   // 거리 6 = 짝수라 정확히 가운데서 만난다
+
+        MatchResult r = Match.playResult(
+                always(Direction.RIGHT), always(Direction.LEFT), headOn, width, height);
+
         assertEquals(-1, r.winner());
         assertEquals(DeathReason.HEAD_ON_COLLISION, r.reason());
     }

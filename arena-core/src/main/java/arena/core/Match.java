@@ -4,8 +4,18 @@ package arena.core;
  * 경기 실행 엔진.
  *
  * 턴 판정의 핵심은 벽 집합 W(t)를 고정한 채로 두 봇의 목표 좌표를
- * 계산한 뒤 동시에 판정하는 것이다. A와 B를 바꿔도 결과가 같으므로
- * 선후공 이점이 존재하지 않는다.
+ * 계산한 뒤 동시에 판정하는 것이다. 한 턴 안에서 봇0을 먼저 묻든
+ * 봇1을 먼저 묻든 결과는 같다 — 어느 쪽 목표 좌표도 상대의 이번 턴
+ * 결정을 보지 못하고, 생사 판정도 같은 W(t) 스냅샷을 기준으로
+ * 동시에 이뤄지기 때문이다. 이것이 이 엔진이 실제로 보장하는
+ * 순서 독립성이다.
+ *
+ * 주의: 이것은 "자리(seat)를 바꿔도 결과가 같다"는 뜻이 아니다.
+ * 0번과 1번의 시작 위치·방향은 시드로부터 각자 독립적으로 뽑히므로
+ * (스펙 §2.2) 두 좌석은 대칭이 아니다. 좌석 교대는 위치는 그대로
+ * 두고 그 자리에 앉는 봇만 바꾸는 것이며 미러링이 아니다 — 즉
+ * 어느 봇이 0번 자리에 앉고 어느 봇이 1번 자리에 앉느냐를 바꾸면
+ * 그건 애초에 다른 경기다.
  *
  * 대전 중에는 어떤 시간 제한도 걸지 않는다. 시간 기반 판정은
  * 같은 조건에 다른 결과를 내어 R1을 깨뜨린다.
@@ -20,6 +30,20 @@ public final class Match {
             long seed, int width, int height) {
 
         StartPositions sp = StartPositions.of(seed, width, height);
+        return playResult(bot0, bot1, sp, width, height);
+    }
+
+    /**
+     * 시작 배치를 직접 지정하는 진입점. 시드로 배치를 뽑는
+     * {@link #playResult(String, BotFunction, String, BotFunction, long, int, int)}도
+     * 결국 이 메서드로 위임한다 — 판정 루프가 딱 하나만 존재하므로,
+     * 시드 기반 경기와 배치를 직접 지정한 경기(예: 정면 충돌·반전
+     * 재현 테스트)가 서로 다른 규칙으로 갈라질 수 없다.
+     */
+    static MatchResult playResult(
+            BotFunction bot0, BotFunction bot1,
+            StartPositions sp, int width, int height) {
+
         Grid grid = new Grid(width, height);
 
         Point[] head = { sp.p0(), sp.p1() };
@@ -111,37 +135,5 @@ public final class Match {
             return own ? DeathReason.P0_HIT_OWN_WALL : DeathReason.P0_HIT_OPPONENT_WALL;
         }
         return own ? DeathReason.P1_HIT_OWN_WALL : DeathReason.P1_HIT_OPPONENT_WALL;
-    }
-
-    /**
-     * 정면 충돌을 재현하는 테스트 전용 진입점.
-     * 두 봇을 같은 행에 짝수 칸 간격으로 마주보게 두고 서로에게 직진시킨다.
-     */
-    static MatchResult headOnForTest(int width, int height) {
-        Grid grid = new Grid(width, height);
-        int y = height / 2;
-        Point a = new Point(10, y);
-        Point b = new Point(16, y);   // 거리 6 = 짝수라 정확히 가운데서 만난다
-
-        Point[] head = { a, b };
-        Direction[] dir = { Direction.RIGHT, Direction.LEFT };
-        grid.claim(a, 0);
-        grid.claim(b, 1);
-
-        for (int turn = 1; turn <= width * height; turn++) {
-            Point p0 = head[0].move(dir[0]);
-            Point p1 = head[1].move(dir[1]);
-
-            boolean dead0 = !grid.inBounds(p0) || grid.isWall(p0) || p0.equals(p1);
-            boolean dead1 = !grid.inBounds(p1) || grid.isWall(p1) || p1.equals(p0);
-
-            if (dead0 || dead1) {
-                return resolve(grid, p0, p1, dead0, dead1, turn);
-            }
-            grid.claim(p0, 0);
-            grid.claim(p1, 1);
-            head[0] = p0; head[1] = p1;
-        }
-        return new MatchResult(-1, width * height, DeathReason.MAX_TURNS);
     }
 }
