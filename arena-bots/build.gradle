@@ -1,0 +1,4 @@
+dependencies {
+    implementation project(':arena-core')
+    testImplementation project(':arena-core')
+}
