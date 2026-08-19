@@ -78,6 +78,49 @@ public final class Match {
             BotFunction bot0, BotFunction bot1,
             StartPositions sp, int width, int height,
             TurnObserver observer) {
+        return playInternal(bot0, bot1, sp, width, height, observer, new StringBuilder());
+    }
+
+    /**
+     * moves까지 기록하는 완전한 경기 실행. 판정 루프는 여전히
+     * {@link #playInternal}에 하나만 존재한다 — 이 메서드는 시작 배치를
+     * 시드로부터 뽑고, 결과에 hash를 씌워 {@link Replay}로 감싸는 역할만
+     * 한다.
+     *
+     * observer로는 반드시 {@link #NO_OP_OBSERVER} 센티널 자체를 넘긴다.
+     * 새 람다를 넘기면 {@code playInternal}이 참조 동일성으로 no-op을
+     * 판별하지 못해 매 턴 grid.copy()가 발생한다 — 챔피언전처럼 관찰자가
+     * 필요 없는 대량 경기에서 이 비용을 물리지 않기 위함이다.
+     */
+    public static Replay play(
+            String id0, BotFunction bot0,
+            String id1, BotFunction bot1,
+            long seed, int width, int height) {
+
+        StartPositions sp = StartPositions.of(seed, width, height);
+        StringBuilder moves = new StringBuilder();
+        MatchResult result = playInternal(bot0, bot1, sp, width, height, NO_OP_OBSERVER, moves);
+
+        String hash = ReplayHash.of(id0, id1, seed, width, height, moves.toString(), result);
+
+        return new Replay(
+                Replay.SCHEMA,
+                id0 + "-vs-" + id1 + "-seed" + seed,
+                width, height, seed, false,
+                id0, sp.p0(), sp.d0(),
+                id1, sp.p1(), sp.d1(),
+                moves.toString(), result, hash);
+    }
+
+    /**
+     * 판정 루프의 유일한 구현. 모든 {@code playResult} 오버로드와
+     * {@link #play}가 결국 이 메서드로 위임한다 — 판정 규칙이 두 갈래로
+     * 갈라질 수 없다.
+     */
+    private static MatchResult playInternal(
+            BotFunction bot0, BotFunction bot1,
+            StartPositions sp, int width, int height,
+            TurnObserver observer, StringBuilder moves) {
 
         Grid grid = new Grid(width, height);
 
@@ -108,6 +151,8 @@ public final class Match {
 
             Point p0 = head[0].move(d0);
             Point p1 = head[1].move(d1);
+
+            moves.append(d0.code()).append(d1.code());
 
             // 2) 같은 W(t)를 기준으로 동시에 판정한다. 판정은 이 시점의
             // grid(=W(t))만 보고 이뤄진다 — 3)에서의 벽 확정보다 먼저다.

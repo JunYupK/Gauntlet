@@ -840,6 +840,25 @@ G7이 시리즈 대전을 필요로 하는데 그게 tournament에 있으면 형
 
 ---
 
+### D39. Task 7 — 리플레이 인코딩과 해시. 브리프의 리팩터 레시피가 낡아 있어 컨트롤러 룰링대로 적용
+
+**배경.** `Match.java`는 D35~D38을 거치며 `playResult`가 네 개 오버로드로 갈라진 상태였다(공개 2개 + 시드 위임, 패키지 전용 2개 + `StartPositions` 직접 지정 — Task 6의 속성 테스트가 뒤의 것으로 결정론적 배치를 구성한다). Task 7 브리프는 "`playResult(…, observer)`의 본문 전체를 `playInternal`로 옮긴다"고 적었는데, 이는 오버로드가 하나였던 옛 구조를 가리킨다. 브리프 텍스트를 그대로 옮기면 네 오버로드 중 실제 턴 루프를 담고 있던 것(4번째: `playResult(BotFunction, BotFunction, StartPositions, int, int, TurnObserver)`)의 본문만 옮기면 되고, 나머지 세 오버로드의 시그니처와 위임 관계는 그대로 둬야 한다고 판단했다(컨트롤러 룰링 그대로 적용).
+
+**적용한 룰링 둘.**
+1. **턴 루프는 하나만 남긴다, 하지만 네 시그니처 전부 보존.** 4번째 `playResult` 오버로드의 본문(그리드 초기화 ~ 턴 루프 ~ `resolve`)을 새 `private static playInternal(BotFunction, BotFunction, StartPositions, int, int, TurnObserver, StringBuilder moves)`로 옮겼다. `moves.append(d0.code()).append(d1.code())`는 `p0`/`p1` 계산 직후, `dead0`/`dead1` 판정 이전에 넣어 치명적인 마지막 이동도 기록되게 했다(브리프 요구 그대로). 4번째 `playResult`는 `playInternal(..., new StringBuilder())`로 위임해 moves를 버린다. 3번째(NO_OP 위임)·2번째(시드→`StartPositions.of`)·1번째(NO_OP 위임) 오버로드는 이전과 동일한 본문·시그니처를 유지한 채 결국 이 사슬을 통해 `playInternal`에 도달한다. 새 `play`도 직접 `playInternal`을 호출한다(`StartPositions.of`를 자신이 뽑아서 `Replay`에도 심어야 하므로 `playResult`를 한 번 더 감싸지 않았다).
+2. **`play`는 `NO_OP_OBSERVER` 센티널 자체를 넘긴다, 브리프의 새 람다 `(t,g,h)->{}`가 아니라.** `playInternal`은 `observer != NO_OP_OBSERVER` 참조 비교로 `grid.copy()` 여부를 결정한다(D38에서 도입). 브리프대로 새 람다를 쓰면 이 참조 동일성이 깨져 `play`가 호출될 때마다(챔피언전 등 대량 호출 경로) 매 턴 30×30 그리드를 복사하게 된다 — `play`는 관찰자가 필요 없는 정확히 그 경로이므로, 센티널을 그대로 넘겨 D38이 만든 비용 절감을 무너뜨리지 않았다.
+
+**기각한 대안**
+| 대안 | 기각 사유 |
+|---|---|
+| 브리프 텍스트를 문자 그대로 따라 옛 두-오버로드 구조로 되돌림 | Task 6의 속성 테스트가 3·4번째(패키지 전용, `StartPositions` 직접 지정) 오버로드를 호출한다 — 삭제하거나 시그니처를 바꾸면 기존 27개 테스트 중 일부가 깨진다 |
+| `play`가 `playResult(..., observer)` 공개 오버로드를 거쳐 위임 | `play`는 `Replay`에 `sp`(시작 배치)를 직접 담아야 하는데, 공개 오버로드는 `StartPositions`를 자기 내부에서만 뽑고 밖으로 내보내지 않는다. 직접 `playInternal`을 호출하는 편이 `StartPositions.of`를 두 번 계산(공개 오버로드 안에서 한 번, `play` 안에서 한 번)하지 않아도 된다 |
+| `play`가 새 람다 관찰자를 넘김(브리프 원문) | 컨트롤러 룰링으로 명시 오버라이드됨 — 위 2번 |
+
+**검증.** RED: `./gradlew :arena-core:test --tests '*ReplayTest*'` — `Replay`·`Match.play` 심볼 없음으로 16개 컴파일 에러(예상대로: 아직 아무것도 구현 안 함). GREEN: `./gradlew :arena-core:test --rerun` — 33개 전부 통과(기존 27 + 신규 `ReplayTest` 6개). `Match.java`에 턴 루프가 `playInternal` 안에 정확히 하나뿐임을 육안 확인, `arena-core/build.gradle`은 의존성 0줄로 무변경.
+
+---
+
 ## 다음 단계
 
 - [x] 스펙 문서 작성 및 자체 검토
