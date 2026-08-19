@@ -1,0 +1,9 @@
+dependencies {
+    implementation project(':arena-core')
+    implementation project(':arena-bots')
+    implementation project(':arena-diagnostics')
+    implementation 'org.ow2.asm:asm:9.7'
+
+    testImplementation project(':arena-core')
+    testImplementation project(':arena-bots')
+}
