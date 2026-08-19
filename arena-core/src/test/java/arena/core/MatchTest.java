@@ -132,4 +132,38 @@ class MatchTest {
         assertEquals(-1, r.winner());
         assertEquals(DeathReason.HEAD_ON_COLLISION, r.reason());
     }
+
+    // Task 8 컨트롤러 룰링: 초기 보드 구성 규칙(시작 칸 2개 + 그 바로 뒤 칸 2개)을
+    // Match.initialGrid로 공개 API화한다. arena-diagnostics의 리플레이 재구성이
+    // 이 규칙을 복사하지 않고 그대로 호출하게 하기 위해서다 — 사본이 갈라지는
+    // 사고(D36 headOnForTest)를 다시 만들지 않는다. 아래 두 테스트는 그
+    // 공개 API 자체가 claimBehind와 같은 결과를 내는지 직접 고정한다.
+
+    @Test
+    void initialGrid는_정확히_4칸의_벽을_갖는다() {
+        StartPositions sp = StartPositions.of(3, 30, 30);
+        Grid grid = Match.initialGrid(sp, 30, 30);
+
+        int wallCount = 0;
+        for (boolean[] row : grid.wallSnapshot()) {
+            for (boolean w : row) {
+                if (w) wallCount++;
+            }
+        }
+        assertEquals(4, wallCount, "시작 칸 2개 + 그 바로 뒤 칸 2개 = 4칸이어야 한다");
+    }
+
+    @Test
+    void initialGrid에서_시작_위치로부터_후진하면_그_칸이_이미_자기_벽이다() {
+        StartPositions sp = StartPositions.of(3, 30, 30);
+        Grid grid = Match.initialGrid(sp, 30, 30);
+
+        Point back0 = sp.p0().move(sp.d0().opposite());
+        assertTrue(grid.isWall(back0), "0번의 후진 목적지가 아직 벽이 아니다");
+        assertEquals(0, grid.ownerAt(back0), "0번의 후진 목적지는 0번 소유여야 한다");
+
+        Point back1 = sp.p1().move(sp.d1().opposite());
+        assertTrue(grid.isWall(back1), "1번의 후진 목적지가 아직 벽이 아니다");
+        assertEquals(1, grid.ownerAt(back1), "1번의 후진 목적지는 1번 소유여야 한다");
+    }
 }

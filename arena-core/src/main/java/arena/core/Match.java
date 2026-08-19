@@ -113,6 +113,35 @@ public final class Match {
     }
 
     /**
+     * 경기 시작 시점의 격자. 시작 칸 2개(양쪽 봇)와 그 바로 뒤 칸 2개,
+     * 합쳐서 항상 4칸이 벽으로 확정된 상태로 돌아온다.
+     *
+     * 시작 칸을 즉시 벽으로 만든다. 덕분에 후진은 별도 규칙 없이
+     * 자기 벽 충돌로 자연 사망한다.
+     *
+     * "후진"이 실제로 죽음이 되려면 시작 칸 자체만으로는 부족하다.
+     * move()는 항상 새 칸으로 이동하므로(같은 칸으로 되돌아오는 경우가
+     * 없으므로) 시작 칸 하나만 벽이면 반대 방향 이동은 그 옆의 새
+     * 빈 칸으로 갈 뿐 아무것도 못 만난다. 봇은 이미 방향 d를 향한
+     * 채로 시작한다고 보고, 그 방향으로 한 칸 오기 직전 칸
+     * (시작 칸의 바로 뒤)도 함께 벽으로 만든다. 이러면 정확히 반대
+     * 방향으로의 첫 이동이 바로 그 칸에 부딪혀 자기 벽 충돌이 된다.
+     *
+     * public인 이유: 엔진({@link #playInternal})과 진단(리플레이 재구성)이
+     * 둘 다 이 규칙을 따라야 하는데, 규칙을 두 곳에 베끼면 사본이 갈라지는
+     * 사고를 반복하게 된다(과거 headOnForTest 사례). 이 메서드가 유일한
+     * 정의다.
+     */
+    public static Grid initialGrid(StartPositions sp, int width, int height) {
+        Grid grid = new Grid(width, height);
+        grid.claim(sp.p0(), 0);
+        grid.claim(sp.p1(), 1);
+        claimBehind(grid, sp.p0(), sp.d0(), 0);
+        claimBehind(grid, sp.p1(), sp.d1(), 1);
+        return grid;
+    }
+
+    /**
      * 판정 루프의 유일한 구현. 모든 {@code playResult} 오버로드와
      * {@link #play}가 결국 이 메서드로 위임한다 — 판정 규칙이 두 갈래로
      * 갈라질 수 없다.
@@ -122,25 +151,10 @@ public final class Match {
             StartPositions sp, int width, int height,
             TurnObserver observer, StringBuilder moves) {
 
-        Grid grid = new Grid(width, height);
+        Grid grid = initialGrid(sp, width, height);
 
         Point[] head = { sp.p0(), sp.p1() };
         Direction[] dir = { sp.d0(), sp.d1() };
-
-        // 시작 칸을 즉시 벽으로 만든다. 덕분에 후진은 별도 규칙 없이
-        // 자기 벽 충돌로 자연 사망한다.
-        //
-        // "후진"이 실제로 죽음이 되려면 시작 칸 자체만으로는 부족하다.
-        // move()는 항상 새 칸으로 이동하므로(같은 칸으로 되돌아오는 경우가
-        // 없으므로) 시작 칸 하나만 벽이면 반대 방향 이동은 그 옆의 새
-        // 빈 칸으로 갈 뿐 아무것도 못 만난다. 봇은 이미 방향 d를 향한
-        // 채로 시작한다고 보고, 그 방향으로 한 칸 오기 직전 칸
-        // (시작 칸의 바로 뒤)도 함께 벽으로 만든다. 이러면 정확히 반대
-        // 방향으로의 첫 이동이 바로 그 칸에 부딪혀 자기 벽 충돌이 된다.
-        grid.claim(head[0], 0);
-        grid.claim(head[1], 1);
-        claimBehind(grid, head[0], dir[0], 0);
-        claimBehind(grid, head[1], dir[1], 1);
 
         int maxTurns = width * height;
 
