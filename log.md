@@ -913,6 +913,33 @@ G7이 시리즈 대전을 필요로 하는데 그게 tournament에 있으면 형
 
 ---
 
+### D42. Task 9 — 함정 봇 스위트
+
+**결정.** `arena-gate` 모듈을 새로 만들고, 관문(G1~G7)이 아직 하나도 없는 상태에서 관문이 잡아야 할 함정 봇 8종과 대조군 `CleanBot`을 `arena-gate/src/test/java/arena/gate/traps/`에 먼저 심었다. 브리프(`task-9-brief.md`)가 파일 내용을 그대로 못 박았으므로 전부 그대로 옮겼다 — 변형 없음.
+
+| 함정 | 어긴 규칙 (단 하나) | 잡는 관문 |
+|---|---|---|
+| `StatefulTrap` | 인스턴스 필드(`callCount`)를 갖는다 | G2 |
+| `ClockTrap` | `System.nanoTime()`으로 시계를 읽는다 | G3 |
+| `UnseededRandomTrap` | 시드 없는 `new Random()` | G3 |
+| `CrashTrap` | 아래 가장자리에서 배열 범위 밖 접근 | G4 |
+| `NondeterministicTrap` | `new Object().hashCode()`(아이덴티티 해시)에 의존 | G5 |
+| `SlowTrap` | 한 수에 4천만 회 루프를 돌려 시간 예산을 넘긴다 | G6 |
+| `WeakTrap` | 직진만 해서 위생 관문은 통과하되 벽회피봇에게 진다 | G7 |
+| `CleanBot` | (없음 — 대조군) | 모든 관문 통과 |
+
+**TDD 순서에 관한 판단.** 브리프의 Step 순서는 "함정 봇 8종 작성 → `TrapSanityTest` 작성 → 테스트 통과 확인"이고, 함정 봇의 코드 자체가 브리프에 완전히 명시돼 있어 테스트가 구현을 이끄는 고전적 RED→GREEN 사이클이 성립하지 않는다(테스트가 먼저 있어도 대상 클래스가 없으면 컴파일조차 안 되므로 "실패하는 테스트"를 독립적으로 관찰할 지점이 없다). 대신 이 테스트는 "함정이 진짜로 함정인가"를 사후 검증하는 성격이라 브리프가 정한 순서(구현 먼저, 검증 나중)를 그대로 따랐다. `./gradlew :arena-gate:test`가 5개 전부 GREEN으로 통과하는 것을 확인했다(RED 단계 없음 — 위 이유).
+
+**자체 검토에서 확인한 것.**
+- 함정 8종 각각 정확히 한 규칙만 어긴다. `ClockTrap`이 시계를 읽는 부작용으로 결과가 실행마다 달라지는 것은 G3 위반의 *결과*이지 별도의 G5 위반으로 세지 않는다 — G3가 먼저 그 호출 자체를 막을 것이기 때문. `NondeterministicTrap`의 `Object.hashCode()`가 G3 금지 목록(`java.lang.reflect.*`류 우회 API)과 부딪힐 수 있다는 점은 태스크 지시문이 미리 조정해 둔 내용이라 손대지 않았다.
+- `CleanBot`은 `PRIORITY` static final 배열 하나만 필드로 갖고(리플렉션으로 non-static 필드 0개 확인하는 테스트로 고정), 금지 API 호출 없음, 항상 유효한 `Direction`을 반환한다(모든 좌표에서 확인하는 테스트로 고정).
+- `TrapSanityTest`는 `StatefulTrap`(리플렉션으로 인스턴스 필드 존재 확인), `CrashTrap`(실제로 `ArrayIndexOutOfBoundsException` 던지는지 확인), `NondeterministicTrap`(100,000회 반복 호출 중 다른 답이 실제로 나오는지 확인), `CleanBot`(모든 위치에서 유효한 방향 반환 + 인스턴스 필드 없음) 넷을 행동으로 검증한다. `ClockTrap`·`UnseededRandomTrap`·`SlowTrap`·`WeakTrap`은 브리프가 별도 sanity 단언을 요구하지 않았다 — 코드만 봐도 위반이 자명하고("무인자 생성자만 잡혀야 한다"는 주석처럼 미묘한 경계가 있는 경우가 아니면), 이 넷의 진짜 검증은 각자를 잡을 관문(G3·G3·G6·G7)이 나중 태스크에서 직접 한다. 브리프 범위를 넘겨 추가 단언을 붙이지 않았다("정확히 브리프가 명시한 것만" 원칙).
+- `arena-gate`의 프로덕션·테스트 코드 어디도 `arena.bots.baseline.*`(동결된 베이스라인 3종)을 import하지 않는다. 의존 방향도 브리프가 준 `build.gradle` 그대로다 — `arena-gate`가 `arena-core`·`arena-bots`·`arena-diagnostics`를 의존하고, 그 반대는 없다. 관문 코드는 이번 태스크에 없다(브리프·태스크 지시문 모두 "관문 없음"을 명시).
+
+**검증.** `./gradlew :arena-gate:test` 5개 GREEN. `./gradlew test --rerun` 전체 58개 GREEN(기존 53 + 신규 5), 빌드 출력 오류·경고 없음. 커밋 `1683d0c`.
+
+---
+
 ## 다음 단계
 
 - [x] 스펙 문서 작성 및 자체 검토
