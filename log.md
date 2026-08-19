@@ -940,6 +940,26 @@ G7이 시리즈 대전을 필요로 하는데 그게 tournament에 있으면 형
 
 ---
 
+### D43. Task 10 — 관문 프레임워크와 G2(무상태)
+
+**결정.** `arena-gate`에 처음으로 `src/main` 코드를 추가했다. `Gate`(인터페이스), `GateResult`(record), `GateContext`(record), `StatelessGate`(G2) 넷 다 브리프(`task-10-brief.md`)가 준 코드를 그대로 옮겼다. TDD 순서는 브리프대로: `GateContextFixture`·`StatelessGateTest` 먼저 작성 → `./gradlew :arena-gate:test --tests '*StatelessGateTest*'`로 RED 확인(`Gate`/`GateResult`/`GateContext`/`StatelessGate` 네 심볼이 없어 컴파일 자체가 실패, 정확히 브리프가 예고한 실패) → 구현 → 같은 명령으로 GREEN 확인(4개 통과).
+
+**자체 검토에서 찾은 구멍과 그 자리에서 고친 것.** 태스크 지시문이 "상속된 필드를 올바르게 처리하는가"를 명시적으로 묻길래 확인해봤다. `Class#getDeclaredFields()`는 **그 클래스 자신에 선언된 필드만** 돌려준다 — 슈퍼클래스 필드는 안 보인다. 즉 브리프에 적힌 코드 그대로는, 봇이 `abstract class LeakyBase implements Bot { private int hiddenCounter; ... }`를 만들고 `class SneakyBot extends LeakyBase`로 상속만 받으면 `SneakyBot.class.getDeclaredFields()`가 빈 배열을 내놓아 G2를 그냥 통과한다. 직접 리플렉션 스크립트로 재현해 확인했다(`SneakyBot.class.getDeclaredFields()` → `[]`, `hiddenCounter`는 안 잡힘).
+
+이건 "브리프를 그대로 따르라"는 지시와 충돌하는 것처럼 보이지만, 컨트롤러 노트가 못 박은 건 **구조적 검사 vs 행동적 검사**(`move`를 두 번 불러 비교하는 방식으로 바꾸지 말라)이지, 리플렉션 자체를 얕게 하라는 뜻이 아니다. 클래스 계층을 걸어 올라가는 것도 여전히 순수한 구조적 검사이므로 그 제약을 어기지 않는다. G2의 존재 이유가 "봇 작성자가 상태를 숨기지 못하게" 막는 것인데, 상속 한 단계로 뚫리는 구멍을 그대로 두는 건 관문의 목적 자체를 배신한다고 판단해 고쳤다.
+
+**적용한 수정.** `StatelessGateInheritanceTest`를 새로 추가해(브리프가 못 박은 `StatelessGateTest.java`는 손대지 않고 별도 파일로) `abstract class LeakyBase`에 인스턴스 필드를 두고 `InheritedStateTrap extends LeakyBase`가 그 필드를 상속만 받는 케이스로 RED를 확인했다(`assertFalse(r.passed())`가 실패 — `InheritedStateTrap`이 부당하게 통과). `StatelessGate.check`의 단일 `for (Field f : ctx.botClass().getDeclaredFields())`를 `for (Class<?> c = ctx.botClass(); c != null && c != Object.class; c = c.getSuperclass())`로 감싸 슈퍼클래스 체인을 `Object` 직전까지 걸어 올라가며 매 단계에서 static/synthetic 필드를 걸러내도록 바꿨다. 다시 실행해 GREEN 확인.
+
+**synthetic·static 확인.** 별도 리플렉션 스크립트로 두 가지를 검증했다. (1) non-static 내부 클래스가 outer 인스턴스를 참조하면 컴파일러가 넣는 `this$0` 필드는 `isSynthetic()==true`로 잡혀 `StatelessGate`가 정확히 건너뛴다. (2) 람다 캡처는 봇 클래스 자신에 필드를 만들지 않는다(캡처값은 합성 람다 클래스의 생성자 인자로 전달되지, enclosing 클래스의 필드가 되지 않는다) — 그래서 별도 처리가 필요 없다. `static final` 상수(`WallAvoidBot.PRIORITY`)는 `Modifier.isStatic` 검사로 매 계층에서 계속 허용된다 — `static_final_상수는_허용한다` 테스트로 고정.
+
+**반려 메시지 검토.** `StatefulTrap`을 반려하면 `detail`이 "인스턴스 필드가 1개 있다: int callCount — 봇은 무상태 순수 함수여야 한다"를 낸다 — 타입과 이름을 둘 다 명시해 봇 작성자가 소스를 보지 않고도 무엇을 지워야 하는지 알 수 있다.
+
+**GateContext 범위 검토.** `bot`·`botClass`·`width`·`height`·`judgingSeeds` 다섯 필드 전부 브리프가 명시한 그대로다. G2는 `botClass`만 쓰지만, 나머지 넷은 이후 태스크(G4의 격자 크기, G5·G6의 심사 시드, 일부 관문이 실제로 `bot`을 실행해야 하는 경우)에서 쓰일 것으로 예상되는 최소 집합이라 지금 단계에서 더 줄이지 않았다.
+
+**검증.** `./gradlew :arena-gate:test --tests '*StatelessGate*'` 5개(`StatelessGateTest` 4 + `StatelessGateInheritanceTest` 1) GREEN. `./gradlew test --rerun` 전체 63개 GREEN(기존 58 + 신규 5), 빌드 출력 오류·경고 없음. 커밋은 아래.
+
+---
+
 ## 다음 단계
 
 - [x] 스펙 문서 작성 및 자체 검토
