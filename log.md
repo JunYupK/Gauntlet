@@ -859,6 +859,30 @@ G7이 시리즈 대전을 필요로 하는데 그게 tournament에 있으면 형
 
 ---
 
+### D40. Task 8 — flood fill과 손실 분석. `Match.initialGrid` 추출, 그리고 브리프 코드에서 실제 결함 발견
+
+**배경.** Task 8 브리프의 `LossAnalyzer.replayToFinalGrid`(그리고 `replayAndAnalyze`)는 시작 격자를 `grid.claim(head[0], 0); grid.claim(head[1], 1);` 두 줄로 재구성했다. 하지만 실제 엔진(`Match.playInternal`)은 시작 칸 2개뿐 아니라 그 바로 뒤 칸 2개까지, 총 4칸을 벽으로 확정한 채로 매치를 시작한다(D35의 `claimBehind` — 첫 턴 반전을 자기 벽 충돌로 만들기 위한 장치). 이 규칙을 `arena-diagnostics`에 다시 베끼면 두 사본이 갈라지는 사고가 재발한다 — `MatchTest`의 `headOnForTest`가 판정식을 복사했다가 갈라졌던 D36의 반복이다.
+
+**적용한 룰링: `Match.initialGrid(StartPositions, int, int)`를 public API로 추출.** `playInternal`의 그리드 초기화 네 줄(시작 칸 2개 claim + `claimBehind` 2번)을 그대로 옮기고, `playInternal`은 이 메서드를 호출하도록 바꿨다. 설명 주석도 함께 옮겼다. 순수 추출이라 동작 변화가 없어야 한다는 게 전제였고, 이를 두 가지로 확인했다: (1) 기존 `arena-core` 33개 테스트가 리팩터 후에도 전부 그대로 통과, (2) `initialGrid`를 직접 겨냥한 신규 테스트 두 개(벽이 정확히 4칸인지, 시작 위치에서 후진하면 그 칸이 이미 자기 벽인지)를 `MatchTest`에 추가해 35개 전부 통과. `LossAnalyzer`의 `replayAndAnalyze`·`replayToFinalGrid`는 브리프의 두 줄짜리 재구성 대신 `Match.initialGrid`를 호출한다.
+
+**자체 검토 중 브리프 코드 자체의 결함을 하나 찾았다.** `replayToFinalGrid`(그리고 `replayAndAnalyze`)의 턴 루프는 `dead0`/`dead1`을 판정한 뒤 곧장 `if (dead0 || dead1) break;`로 빠져나가고, 그 다음에야 `grid.claim(p0, 0); grid.claim(p1, 1);`을 실행했다 — 즉 매치를 끝내는 턴에는 **누구의 좌표도 claim되지 않는다**. 그런데 실제 엔진은 D38 이후로 "매치를 끝내는 턴이라도 생존한 쪽의 새 좌표는 벽으로 확정한다"(스펙 §2.1 `W(t+1) = W(t) ∪ {생존한 봇의 새 머리 좌표}`, 생존 봇 수만큼 벽이 는다는 §7.1 벽 단조성과 동치)는 규칙으로 이미 고쳐져 있다. 한쪽만 죽고 한쪽은 살아남는 매치(예: 이번 테스트의 `suicide` vs `avoid`)에서 재구성한 최종 격자는 생존자의 마지막 한 칸을 놓치고, 그만큼 `occupancy`가 조용히 틀어진다.
+
+두 함수 모두 `grid.claim`을 판정 직후·break 이전으로 옮겨 `playInternal`과 순서를 맞췄다(생존한 쪽만 claim, 죽은 쪽은 그대로 둔다 — 양쪽 다 죽는 경우는 판정식이 대칭이라 항상 함께 죽으므로 안전). 회귀 테스트(`점유율의_분자합은_엔진이_실제로_낸_최종_벽_칸수와_같다`)를 추가했다: `Match.playResult`의 `TurnObserver`로 엔진이 실제로 낸 최종 벽 칸수를 잡고, 같은 시드·같은 봇으로 얻은 `Replay`를 `LossAnalyzer.analyze`에 넣어 `occupancy` 배열의 합에서 역산한 칸수와 비교한다. 고치기 전 코드로 되돌려 이 테스트가 실제로 실패하는 것(FAILED, `LossAnalyzerTest.java:105`)까지 확인한 뒤 고친 코드로 복구했다 — 공허한 회귀 테스트가 아니다.
+
+**손실 계산(`analyzeMove`)은 "같은 시점의 보드"에서 네 방향 모두를 평가한다.** 네 후보 방향 전부 이 턴 시작 시점의 `grid` 스냅샷을 `copy()`해서 독립적으로 평가하므로, "실제 선택 vs 최선 대안"이 서로 다른 시점의 보드를 비교하는 일이 없다. `FloodFill.reach`는 재귀가 아니라 `ArrayDeque` 기반 BFS다 — 30×30=900칸이 전부 열려 있어도 스택을 먹지 않는다.
+
+**의도적으로 손대지 않은 것: 상대방과의 동시 진입(정면 충돌).** `analyzeMove`가 어떤 방향이 "안전한지"를 판단할 때는 이 턴 시작 시점의 벽만 본다 — 상대가 이번 턴에 어디로 움직일지는 (실제로 선택하지 않은 대안 방향에 대해서는) 알 수 없으므로 반영하지 않는다. 그래서 만약 실제 선택이 정면 충돌로 죽는 경우, 그 방향 자체는 "안전"으로 잡혀 `suicide=false`가 될 수 있다. 이건 결함이 아니라 이 지표의 정의 범위다 — `suicide`는 "대안이 있는데도 이미 확정된 벽(자기 벽이든 상대 벽이든)에 스스로 들이받았는가"를 재는 것이고, 정면 충돌은 양쪽이 동시에 만든 사건이라 한쪽의 "자멸"로 귀속시키는 게 애초에 부정확하다. `loss`는 이 경우에도 항상 0 이상을 유지한다(선택한 방향도 네 후보 중 하나로 포함되므로).
+
+**기각한 대안**
+| 대안 | 기각 사유 |
+|---|---|
+| 브리프의 `replayToFinalGrid`를 문자 그대로 구현(시작 칸 2개만 claim) | 룰링 자체가 이걸 금지한다 — 재구성한 보드가 턴 0부터 엔진과 어긋나 모든 지표가 조용히 틀려진다 |
+| 정면 충돌도 `suicide=true`로 잡히게 `analyzeMove`를 확장(상대의 실제 이번 턴 이동을 미리 반영) | 범위 밖이다. 이 함수는 "그 방향으로 갔을 때 내가 얼마나 갇히는가"를 재는 단일 에이전트 지표이지, 상대의 실제 수를 아는 사후 판정이 아니다. 게다가 대안 방향 3개에 대해서는 상대가 실제로 무엇을 했을지 알 방법이 없어(반사실이므로) 정면 충돌 판정을 일관되게 적용할 수도 없다 |
+
+**검증.** RED: `./gradlew :arena-core:test`(`Match.initialGrid` 심볼 없음, 2개 컴파일 에러) → `./gradlew :arena-diagnostics:test`(`FloodFill`·`MatchMetrics`·`LossAnalyzer`·`MoveAnalysis` 심볼 없음, 15개 컴파일 에러). GREEN: `Match.initialGrid` 구현 후 `./gradlew :arena-core:test --rerun` 35개 전부 통과(기존 33 + 신규 2). `arena-diagnostics` 구현 후 `./gradlew :arena-diagnostics:test --rerun` 10개 전부 통과(브리프 9개 + 회귀 테스트 1개). `./gradlew test --rerun`(전체) — `arena-bots` 7 + `arena-core` 35 + `arena-diagnostics` 10 = 52개 전부 통과, `arena-gate`·`arena-tournament`·루트·`arena-api`는 소스 없음(NO-SOURCE). 커밋 `88dac8e`.
+
+---
+
 ## 다음 단계
 
 - [x] 스펙 문서 작성 및 자체 검토
