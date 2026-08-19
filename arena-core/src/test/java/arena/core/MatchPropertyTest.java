@@ -1,5 +1,7 @@
 package arena.core;
 
+import java.util.ArrayList;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -58,7 +60,13 @@ class MatchPropertyTest {
         // "자기 시작 칸 바로 뒤" 두 칸이 우연히 같은 칸일 수 없다 — 그래서
         // 이 경로는 HEAD_ON_COLLISION이 아니라 BOTH_DIED로, 서로 다른 이유로
         // 동시에 죽는 경우를 시드 500개 전부에서 강제로 만들어낸다.
-        int guaranteedDoubleDeaths = 0;
+        // 리뷰 반려: 예전 코드는 여기서 "guaranteedDoubleDeaths"를 세어
+        // assertEquals(SEEDS, guaranteedDoubleDeaths)로 단언했지만, 그
+        // 카운터는 루프 본문 맨 끝에서 무조건 증가한다 — 안에서 실패하면
+        // 애초에 이 줄에 못 오므로 어떤 입력으로도 이 assertEquals는 실패할
+        // 수 없는 죽은 코드였다. 진짜 전제 검사는 매 반복의
+        // assertEquals(DeathReason.BOTH_DIED, ...)이 이미 하고 있으므로
+        // 카운터는 지웠다.
         for (long seed = 1; seed <= SEEDS; seed++) {
             MatchResult r = Match.playResult("r0", reverse(), "r1", reverse(), seed, 30, 30);
 
@@ -67,28 +75,32 @@ class MatchPropertyTest {
                     "시드 " + seed + ": 서로 다른 칸에서 각자 죽어야 BOTH_DIED다");
             assertEquals(-1, r.winner(),
                     "시드 " + seed + ": 동시 사망인데 승자가 있다 (winner=" + r.winner() + ")");
-            guaranteedDoubleDeaths++;
         }
-        assertEquals(SEEDS, guaranteedDoubleDeaths,
-                "동시 사망 시나리오가 모든 시드에서 재현되어야 한다 — 하나라도 빠지면 이 속성은 공허하다");
 
         // 위는 항상 같은 경로(자기 벽 충돌)로만 동시 사망을 만든다. 실제
         // 대국을 흉내 낸 다양한 봇 조합에서도 우연히 동시 사망이 나오면
-        // 여전히 무승부여야 한다는 걸 함께 확인한다 (이 부분은 발생 횟수를
-        // 요구하지 않는다 — 위에서 이미 비공허성을 확보했다).
+        // 여전히 무승부여야 한다는 걸 함께 확인한다. 리뷰 반려: 이 절반은
+        // 원래 발생 횟수를 세지 않는 조건부 단언뿐이었다 — naturalBots 조합이
+        // 앞으로 바뀌어 동시 사망이 한 번도 안 나오면 조용히 통과하는
+        // 공허한 절반이 될 수 있었다. 발생 건수에 바닥(>0)을 걸어 327건
+        // (측정치)이 검증 가능한 사실이 되게 했다.
         BotFunction[] naturalBots = { avoid(), hugLeft(), always(Direction.UP), reverse() };
+        int organicDoubleDeaths = 0;
         for (long seed = 1; seed <= 100; seed++) {
             for (BotFunction b0 : naturalBots) {
                 for (BotFunction b1 : naturalBots) {
                     MatchResult r = Match.playResult("x", b0, "y", b1, seed, 30, 30);
                     if (r.reason() == DeathReason.BOTH_DIED
                             || r.reason() == DeathReason.HEAD_ON_COLLISION) {
+                        organicDoubleDeaths++;
                         assertEquals(-1, r.winner(),
                                 "시드 " + seed + ": 동시 사망(" + r.reason() + ")인데 승자가 있다");
                     }
                 }
             }
         }
+        assertTrue(organicDoubleDeaths > 0,
+                "자연 발생 동시 사망이 한 건도 없었다 — 이 절반은 공허하다");
     }
 
     @Test
@@ -141,19 +153,86 @@ class MatchPropertyTest {
 
     @Test
     void 속성_벽_단조성_벽은_줄지_않고_생존자_수만큼_늘어난다() {
+        // 리뷰 반려: 브리프가 준 원래 코드는 모든 단언이 관찰자 람다
+        // 안에서만 이뤄졌는데, 그 시점의 엔진은 둘 다 생존한 턴에만
+        // observer.onTurn을 불렀다 — 매치를 끝내는 턴(누군가 죽는 턴)은
+        // 절대 관찰되지 않았다. avoid() vs hugLeft()가 시드 100개 전부
+        // 언젠가는 턴 1부터 죽어버리는 조합으로 바뀌면, 람다가 단 한 번도
+        // 실행되지 않고도 이 테스트는 초록으로 통과했을 것이다 — "생존자
+        // 수만큼"이라는 이름이 주장하는 바(한쪽만 죽는 턴엔 1칸만 늚)는
+        // 애초에 이 훅으로 검증된 적이 없었다.
+        //
+        // Match.java를 함께 고쳤다: 스펙 §2.1의 W(t+1) = W(t) ∪ {생존한
+        // 봇의 새 머리}는 매치를 끝내는 턴에도 예외가 아니다. 이제
+        // observer.onTurn은 turn 1..r.turns() 전부(매치를 끝내는 턴
+        // 포함)에서, 그 턴에 실제로 확정된 벽을 반영한 그리드로 불린다.
+        // 그래서 이 테스트도 "둘 다 생존한 턴은 +2, 매치를 끝내는 턴은
+        // 무승부면 +0·단독 승자면 +1"을 전부 검사할 수 있다.
+        int totalCallbacks = 0;
+
         for (long seed = 1; seed <= 100; seed++) {
             final long s = seed;   // 람다가 캡처하려면 effectively final이어야 한다
+            List<Integer> counts = new ArrayList<>();
+            List<Integer> observedTurns = new ArrayList<>();
+
+            MatchResult r = Match.playResult("a", avoid(), "b", hugLeft(), seed, 30, 30,
+                    (turn, gridAfter, heads) -> {
+                        counts.add(countWalls(gridAfter));
+                        observedTurns.add(turn);
+                    });
+
+            assertEquals(r.turns(), counts.size(),
+                    "시드 " + s + ": 관찰자 호출 횟수(" + counts.size()
+                            + ")가 매치 턴 수(" + r.turns() + ")와 다르다 — 어떤 턴은 관찰되지 않았다");
+            totalCallbacks += counts.size();
+
             // 턴 1 시작 전에 이미 4칸이 벽이다: 각 봇의 시작 칸(2) +
             // claimBehind가 미리 벽으로 만들어두는 시작 칸 바로 뒤(2).
-            int[] previous = { 4 };
+            int previous = 4;
+            for (int i = 0; i < counts.size(); i++) {
+                boolean isFinalTurn = (i == counts.size() - 1);
+                // 매치를 끝내지 않는 턴은 둘 다 생존해야만 루프가 계속되므로
+                // 정의상 +2다. 매치를 끝내는 턴은 무승부(둘 다 사망, 생존자
+                // 0명)면 +0, 단독 승자(생존자 1명)면 +1이어야 한다.
+                int expectedGrowth = !isFinalTurn ? 2 : (r.isDraw() ? 0 : 1);
+                int actualGrowth = counts.get(i) - previous;
+                assertEquals(expectedGrowth, actualGrowth,
+                        "시드 " + s + " 턴 " + observedTurns.get(i)
+                                + ": 벽 증가량이 생존자 수와 다르다(기대 " + expectedGrowth
+                                + ", 실제 " + actualGrowth + ")");
+                previous = counts.get(i);
+            }
+        }
 
-            Match.playResult("a", avoid(), "b", hugLeft(), seed, 30, 30,
-                    (turn, gridAfter, heads) -> {
-                        int count = countWalls(gridAfter);
-                        assertEquals(previous[0] + 2, count,
-                                "시드 " + s + " 턴 " + turn + ": 벽이 2칸씩 늘지 않았다");
-                        previous[0] = count;
-                    });
+        assertTrue(totalCallbacks > 0,
+                "관찰자 콜백이 한 번도 없었다 — 이 속성은 공허하다");
+    }
+
+    @Test
+    void 속성_벽_단조성_한쪽만_죽은_턴은_벽이_1칸만_는다() {
+        // 위 속성 테스트와 별개로, "한쪽만 죽은 턴엔 벽이 정확히 1칸만
+        // 는다"를 시드에 기대지 않고 결정론적으로 구성한 단일 시나리오로
+        // 직접 확인한다. 반전 봇(claimBehind 덕분에 시드와 무관하게 항상
+        // 턴 1에 자기 벽에 부딪힌다)을 avoid()와 맞세우면 항상 0번만
+        // 죽는다 — avoid()는 즉사하지 않는 방향을 스스로 고르기 때문이다.
+        for (long seed = 1; seed <= 20; seed++) {
+            int[] finalCount = { -1 };
+
+            MatchResult r = Match.playResult(
+                    "back", reverse(), "avoid", avoid(), seed, 30, 30,
+                    (turn, gridAfter, heads) -> finalCount[0] = countWalls(gridAfter));
+
+            assertEquals(1, r.turns(), "시드 " + seed + ": 반전 봇은 턴 1에 죽어야 한다");
+            assertEquals(1, r.winner(), "시드 " + seed + ": avoid 쪽이 살아남아야 한다");
+            assertEquals(DeathReason.P0_HIT_OWN_WALL, r.reason());
+
+            // 시작 전 4칸(시작 칸 2 + claimBehind 2) + 생존자(1번) 몫 1칸 = 5.
+            // 6칸(둘 다 확정)도, 4칸(아무도 확정 안 됨)도 아니어야 한다 —
+            // 죽은 0번의 목표 좌표가 실수로 벽이 되지 않았다는 것도 이걸로
+            // 함께 확인된다(그랬다면 6이 나왔을 것이다).
+            assertEquals(5, finalCount[0],
+                    "시드 " + seed + ": 한쪽만 죽은 턴인데 벽이 정확히 1칸(생존자 몫)만 늘지 않았다"
+                            + " (실제 " + finalCount[0] + ")");
         }
     }
 

@@ -24,7 +24,18 @@ public final class Match {
 
     private Match() {}
 
-    /** 턴이 끝날 때마다 호출된다. 테스트와 진단이 엔진 내부를 관찰하는 통로. */
+    /**
+     * 턴이 끝날 때마다(생존 여부와 무관하게, 매치를 끝내는 턴을 포함해서)
+     * 호출된다. 테스트와 진단이 엔진 내부를 관찰하는 통로.
+     *
+     * {@code gridAfter}는 엔진의 살아있는 인스턴스가 아니라 매 호출마다
+     * 뜨는 방어적 복사본이다({@link Grid#copy()}) — {@link Grid#claim}은
+     * public이고 범위 검사도 하지 않으므로, 관찰자가 실수로든 의도적으로든
+     * 엔진 상태를 훼손할 수 없게 막는다. 관찰자를 넘기지 않은 호출(내부
+     * no-op 관찰자)에서는 이 복사조차 만들지 않는다 — 챔피언전처럼 아무도
+     * 지켜보지 않는 대량 경기에서 턴마다 격자를 복사하는 비용을 물리지
+     * 않기 위해서다.
+     */
     @FunctionalInterface
     public interface TurnObserver {
         void onTurn(int turn, Grid gridAfter, Point[] heads);
@@ -98,18 +109,30 @@ public final class Match {
             Point p0 = head[0].move(d0);
             Point p1 = head[1].move(d1);
 
-            // 2) 같은 W(t)를 기준으로 동시에 판정한다.
+            // 2) 같은 W(t)를 기준으로 동시에 판정한다. 판정은 이 시점의
+            // grid(=W(t))만 보고 이뤄진다 — 3)에서의 벽 확정보다 먼저다.
             boolean dead0 = !grid.inBounds(p0) || grid.isWall(p0) || p0.equals(p1);
             boolean dead1 = !grid.inBounds(p1) || grid.isWall(p1) || p1.equals(p0);
+
+            // 3) 생존한 봇에 대해서만 벽을 확정한다: W(t+1) = W(t) ∪
+            // {생존한 봇의 새 머리 좌표} (스펙 §2.1 W(t) 정의, §7.1 벽
+            // 단조성 |W(t+1)|-|W(t)| == 생존 봇 수). 이 턴에 매치가
+            // 끝나더라도(한쪽만 죽거나 둘 다 죽거나) 예외가 아니다 —
+            // 살아남은 쪽이 있다면 그 머리는 여전히 벽이 된다. p0 == p1인
+            // 동시 진입은 두 판정식이 대칭이라 dead0·dead1이 항상 함께
+            // true이므로, 살아있는 쪽의 좌표만 벽이 되고 죽은 쪽의 좌표가
+            // 실수로 덮어씌워질 일은 없다.
+            if (!dead0) grid.claim(p0, 0);
+            if (!dead1) grid.claim(p1, 1);
+
+            if (observer != NO_OP_OBSERVER) {
+                observer.onTurn(turn, grid.copy(), new Point[]{ p0, p1 });
+            }
 
             if (dead0 || dead1) {
                 return resolve(grid, p0, p1, dead0, dead1, turn);
             }
 
-            // 3) 생존한 봇에 대해서만 벽을 확정한다.
-            grid.claim(p0, 0);
-            grid.claim(p1, 1);
-            observer.onTurn(turn, grid, new Point[]{ p0, p1 });
             head[0] = p0; head[1] = p1;
             dir[0] = d0;  dir[1] = d1;
         }
