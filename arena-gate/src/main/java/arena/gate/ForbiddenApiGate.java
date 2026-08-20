@@ -49,7 +49,6 @@ public final class ForbiddenApiGate implements Gate {
             "java/lang/System.identityHashCode",
             "java/lang/System.getenv",
             "java/lang/System.getProperty",
-            "java/lang/Object.hashCode",
     };
 
     @Override

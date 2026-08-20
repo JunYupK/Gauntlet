@@ -1081,6 +1081,53 @@ Minor 4건이 왔고, 그중 첫 2건을 컨트롤러가 상향했다 — "이 �
 
 ---
 
+### D50. Task 15 — 승점 집계(`Standing`)·G7(회귀 방지)·관문 실행기(`GateRunner`): D1(G3/G5 충돌)이 예측대로 갔고, CleanBot이 G7을 겨우 못 넘겼다
+
+**결정.** 브리프(`task-15-brief.md`)가 준 뼈대(`Standing`·`RegressionGate`·`GateReport`·`GateRunner`)를 그대로 구현하되, 컨트롤러가 미리 못 박은 네 가지 판단과 실행 중 발견한 성능·정확성 문제를 반영했다. TDD 순서는 브리프대로: `StandingTest`(브리프 3개 테스트 그대로) 작성 → RED 확인(`Standing` 심볼 없음) → 구현 → GREEN. `GateRunnerTest`(브리프 9개 테스트 그대로, 이후 2개 추가) 작성 → RED 확인(`GateRunner`·`GateReport`·`RegressionGate` 심볼 없음) → 구현 → GREEN.
+
+**결정 1 — G3/G5 충돌은 브리프가 예측한 대로 갔다.** `NondeterministicTrap은_G5에서_걸린다`를 처음 돌리자 `failedGate()`가 `"G3"`였다 — `java/lang/Object.hashCode`가 `ForbiddenApiGate.FORBIDDEN_METHODS`에 있어 G3가 먼저 잡았다. 사전에 합의된 대로 `FORBIDDEN_METHODS`에서 `java/lang/Object.hashCode` 항목을 제거했다: 결정론 위반은 G5의 몫이고, G3의 몫은 재현성을 깨는 "호출"을 막는 것인데 `Object.hashCode` 자체는 그런 호출이 아니라 증상일 뿐이며 G5가 그 증상을 직접, 더 잘 잡는다. 제거 후 재실행하니 `NondeterministicTrap은_G5에서_걸린다`가 기대대로 `"G5"`로 통과했다(`ForbiddenApiGateTest`·`ForbiddenApiGateNestedClassTest`의 기존 9개 테스트는 이 항목을 쓰지 않아 회귀 없이 그대로 GREEN).
+
+**Standing — 좌석 교대 귀속.** `winner`는 좌석 기준이므로, 봇 이름으로 승패를 판정하려면 `r.bot0Id().equals(subjectId)`로 "이 경기에서 내가 몇 번 자리에 앉았는가"부터 구한 뒤 `result().winner()`와 비교해야 한다 — `swapped` 플래그 자체는 보지 않는다(D48이 `SeriesRunner`에서 이미 확립한 불변식: `bot0Id`/`bot1Id`가 항상 실제 좌석과 일치하므로 `swapped`를 다시 뒤집어 계산할 필요가 없다). `StandingTest.좌석_교대_경기의_승자를_올바르게_귀속한다`가 이걸 직접 고정한다: 정방향 경기에서 hero가 0번 자리로 이기고, 교대 경기에서는 hero가 1번 자리에서(`bot0Id="rival"`, `winner=1`) 이기는 두 케이스를 섞어 `wins()==2`를 확인한다 — `swapped`를 무시하고 항상 `winner==0`으로 판정하는 버그가 있었다면 두 번째 케이스가 `losses`로 잘못 잡혀 이 테스트가 실패했을 것이다. 무승부 0.5점 산식(`(wins + 0.5*draws) / total`)은 브리프 예시 그대로이며, 60%대 정확한 경계값(0.875 = (3+0.5)/4)까지 테스트로 고정했다.
+
+**결정 2 — 관문이 예외를 던지면 GateRunner가 그 관문의 실패로 변환한다.** `ForbiddenApiGate.readClassFile`은 클래스 바이트를 못 찾으면 체크되지 않은 `IllegalStateException`을 던지고, 이게 `check()` 시그니처를 그대로 뚫고 나간다. `GateRunner.run`이 각 관문 호출을 `checkSafely`로 감싸 `RuntimeException`을 잡고 `GateResult.fail(gate.id(), ...)`로 바꾼다 — 이렇게 해야 "봇은 반려당할 뿐 하네스를 무너뜨릴 수 없다"는 계약이 지켜진다. 스캔 불가능한 봇 하나 때문에 나머지 봇 심사까지 통째로 죽으면 안 된다.
+
+이게 실제로 작동하는지는 증거로 확인했다 — 진짜로 클래스 바이트를 못 찾는 상황을 재현해야 의미가 있으므로, `getResourceAsStream`이 항상 `null`을 돌려주는 `ClassLoader`(`BlindLoader`)로 무해한 봇 클래스를 다시 정의했다: 클래스 자체는 정상 로드·실행되지만(인스턴스를 만들 수 있어야 하므로) 그 바이트를 리소스로 되찾을 방법은 없다. `GateRunnerExceptionTest.클래스_바이트를_못_읽으면_G3를_실패로_돌리고_하네스는_죽지_않는다`가 이 시나리오로 `GateRunner.run(ctx)`를 호출해 (1) `assertDoesNotThrow`로 `run` 자체가 예외를 던지지 않는지, (2) `failedGate()=="G3"`인지, (3) `detail()`에 `IllegalStateException`이 남아 진단 가능한지, (4) `results().size()==2`(G2 통과 + G3 실패, 그 뒤 관문은 안 돔)인지를 확인한다. 4개 assert 모두 GREEN.
+
+**결정 3 — `GateRunner.SAMPLE_SIZE`·`P99_LIMIT_MILLIS`는 값을 낮추지 않고, 테스트 비용만 별도 오버로드로 줄였다.** 처음 구현대로(패키지 전용 오버로드 없이) `GateRunnerTest`를 프로덕션 표본(10,000)·심사 시드(1..50) 그대로 돌리자 `SlowTrap은_G6에서_걸린다`가 2분을 넘겨도 안 끝났다(강제 종료). 원인은 `SlowTrap`이 한 수에 수십 ms(D47 실측: p50 47ms)를 쓰는데, G4(10,000회)·G5 ①층(40,000회, `positions.size()*(1+REPEATS)`) 두 겹만으로 수십 분이 걸리기 때문이다 — 브리프의 "수십 초" 추정은 G6에 한정된 이야기(기존 `TimeBudgetGateTest`처럼 국면 20개로 G6만 떼어 재는 경우)였지, `GateRunner`의 전체 파이프라인(G4~G6를 프로덕션 표본으로 다 거친 뒤 G6에서 반려)까지 감안한 게 아니었다.
+
+`SAMPLE_SIZE`·`P99_LIMIT_MILLIS` 상수 자체를 낮추는 건 금지 사항이므로(요구사항·CLAUDE.md 둘 다 명시), 대신 `GateRunner.run(GateContext ctx)`가 내부적으로 위임하는 패키지 전용 오버로드 `run(GateContext ctx, int sampleSize, double p99LimitMillis)`를 추가했다. 프로덕션 경로(`run(ctx)`)는 언제나 `run(ctx, SAMPLE_SIZE, P99_LIMIT_MILLIS)`로 위임하므로 상수 자체는 그대로다 — 오버로드는 순전히 "어느 관문에서 걸리는가"라는 라우팅 질문을 확인하는 테스트의 비용을 줄이는 용도다. `SlowTrap은_G6에서_걸린다`는 국면 50개·시드 2개로 이 오버로드를 써서 47초로 끝난다(첫 실패에서 멈추는 관문 특성상, 표본·시드를 줄여도 "G4·G5를 통과하고 G6에서 반려된다"는 결론은 바뀌지 않는다). `관문_상수는_스펙값을_그대로_쓴다` 테스트가 `SAMPLE_SIZE==10_000`·`P99_LIMIT_MILLIS==5.0`을 값으로 직접 고정한다.
+
+이 오버로드를 만들다가 진짜 버그를 하나 잡았다 — 초안에서 `run(ctx, sampleSize, p99LimitMillis)`가 `TimeBudgetGate`를 만들 때 파라미터 `p99LimitMillis`가 아니라 클래스 상수 `P99_LIMIT_MILLIS`를 그대로 참조하고 있었다(복사-붙여넣기 실수). 그 상태로는 오버로드에 넘긴 `p99LimitMillis` 값이 완전히 무시된다 — 지금 테스트들은 우연히 항상 `GateRunner.P99_LIMIT_MILLIS`를 그대로 넘겨서 겉으로는 드러나지 않았을 뿐이다. 코드를 다시 읽다가 발견해 `positions, p99LimitMillis`로 고쳤다.
+
+**GateContextFixture 오버로드.** `of(Bot bot, List<Long> seeds)`를 추가해 심사 시드도 테스트에서 줄일 수 있게 했다 — `SlowTrap`의 G5 ②층(리플레이 해시 대조, 시드 수 × 3 베이스라인 × 2)이 시드 수에 비례해서 비싸기 때문이다. 프로덕션 시드(1..50)는 손대지 않는다.
+
+**CleanBot — G7을 처음 붙여 실측하니 대조군이 최상단 기준선(WallAvoidBot)에 못 미쳤다.** 기존 CleanBot("그 칸의 바로 옆 빈 칸 수"만 세는 1칸 앞 공간 감각)으로 `GateRunner.run(ctx)`를 직접 돌려보니 WallAvoidBot 상대 100판(judgingSeeds 1..50, 좌석 교대) 중 48판을 졌다 — G7이 요구하는 "0패"에 한참 못 미쳤다. `CleanBot`은 이 태스크의 요구사항이 명시하는 대조군("모든 관문을 통과해야 한다")이자 브리프가 그대로 준 `GateRunnerTest`의 첫 테스트 대상이므로, 이걸 고치는 게 이 태스크의 범위 안이라고 판단했다(베이스라인 3종은 동결이지만 CleanBot은 테스트 픽스처다).
+
+여덟 가지 접근을 실측으로 비교했다(전부 CleanBot.java 자체의 javadoc에도 남겨 뒀다):
+
+| # | 접근 | WallAvoidBot 상대 100판 중 패배 |
+|---|---|---|
+| 1 | 1칸 앞 빈 칸 수 | 48 |
+| 2 | 보로노이(상대보다 내가 먼저 닿는 칸 수) | 29 |
+| 3 | 보로노이 + 고정순서 DFS 최장경로(예산 20,000) | 7(10시드 축소표본) |
+| 4 | 보로노이 + 이웃수 정렬 DFS(동률만, 예산 4,000) | 18 |
+| 5 | 상대를 적대적으로 미니맥스(깊이 6) | 41 — 실제로 안 일어날 최악의 수에 과잉 대비 |
+| 6 | 상대 고정, 내 수만 완전탐색(깊이 6) | 57 — 상대도 그 사이 움직인다는 걸 무시해 리프 평가가 낡음 |
+| 7 | 6)을 버리고 상대를 "직진 예측"으로 미리 벽에 얹은 뒤 4) 재적용 | 7 |
+| 8 | 7)의 DFS를 "결정론적 무작위 롤아웃 평균(500회)"으로 교체 | **2 ← 최종** |
+
+핵심 진단 두 가지. (a) 4)에서 진 경기(seed=5)를 `Match.TurnObserver`로 직접 재생해 보니, CleanBot이 상대와 나란히(다른 행에서 같은 방향으로) 8턴 넘게 걸으며 왼쪽 아래 구석까지 몰렸다 — "지금 이 순간의 벽 스냅샷"만 보는 한 복도 끝은 항상 뚫려 있어 보이는데, 상대가 나란히 전진하며 그 복도의 지붕을 계속 깎아내고 있다는 건 스냅샷에 안 잡힌다. 상대를 "지금 방향으로 K칸 직진한다"고 예측해 미리 벽으로 얹는 것(7단계)으로 이 특정 경기를 고쳤다. (b) 4)에서 DFS 예산을 4,000→60,000으로 늘렸더니 오히려 18패→22패로 나빠졌다 — 고정 순서로 첫 번째 가지에 예산을 몰아 쓰다가 그 가지가 "커 보인다"는 이유만으로 낫다고 착각하는 편향이 있었고, 예산을 늘릴수록 그 편향도 깊어졌다. 8단계에서 DFS를 접고 "매번 새로 뽑은 난수열로 무작위 경로를 걷는 롤아웃을 여러 번 돌려 평균 생존 칸 수"로 바꾸니 이 편향이 없어져 트라이얼 수를 60→200→500으로 늘릴수록 손실이 18→4→2로 뚜렷이 줄었다.
+
+**남은 한계 — 0패에 도달하지 못했다.** 8단계 기준으로도 100판 중 2판은 진다(seed 13 교대, seed 21 — 둘 다 상대와 무관한 자기 벽 충돌). 트라이얼 수를 더 늘리면(650·800·1000) 오히려 손실이 늘었다 — 이건 진짜 무작위 시뮬레이션이 아니라 결정론적으로 고정된 난수열 하나를 매번 그대로 재생하는 것이라 "표본이 늘수록 매끄럽게 좋아진다"는 보장이 없기 때문이다(근방 값 350·450·550·650을 훑어 500이 국지적 최적임을 확인했다). 상대 예측을 "즉사만 피하며 꺾을 수도 있다"로 정교화하는 것도 시도했지만 더 나빠졌다(7패→15패) — 일반화된 고정 우선순위가 실제 베이스라인의 우선순위와 어긋나 꺾는 방향을 계속 틀리게 예측했다.
+
+**이 태스크의 핵심 우려.** `GateRunnerTest.CleanBot은_모든_관문을_통과한다`가 여전히 FAILED다 — CleanBot이 WallAvoidBot에게 100판 중 2판을 진다(G7 요구사항은 "0패"). 요구사항("CleanBot은 모든 관문을 통과해야 하는 대조군이다")·G7 스펙("전승이 아니라 패배 0회") 어느 쪽도 낮추지 않았고, 낮출 수 없다고 판단했다. 최선을 다한 결과가 48%→2%까지 좁혀졌을 뿐, 정확히 0에는 못 미쳤다 — 두 봇이 동시에 움직이며 서로의 벽을 실시간으로 깎아내는 게임에서 단일 수 시점의 지역 탐색만으로 수백 턴에 걸친 자기 봉쇄를 완전히 막는 건, 이 태스크에 주어진 시간 안에서는 풀지 못했다. 통제자에게 이 상태 그대로 보고한다.
+
+**CleanBot 변경의 여파 — 다른 태스크의 기존 테스트가 느려졌다.** `CleanBot.move()`가 무작위 롤아웃(트라이얼 500회)을 도입하면서 호출 하나당 비용이 마이크로초 단위에서 밀리초 단위로 늘었다. `DeterminismGateTest`·`LegalMoveGateTest`·`TimeBudgetGateTest`(모두 이전 태스크에서 이미 GREEN이던 테스트)가 CleanBot을 국면 수백~수천 개에 먹이므로 실행 시간이 함께 늘었다. 이 파일들은 이 태스크의 소관이 아니라 손대지 않았다 — 실측 결과는 검증 절에 남긴다.
+
+**검증.** `./gradlew :arena-core:test --tests '*StandingTest*'` 3개 GREEN. `./gradlew :arena-gate:test --tests '*GateRunnerTest*'` 10개 중 `CleanBot은_모든_관문을_통과한다` 1개만 FAILED, 나머지 9개(WeakTrap·ClockTrap·StatefulTrap·NondeterministicTrap·SlowTrap·CrashTrap·UnseededRandomTrap·관문_상수는_스펙값을_그대로_쓴다·첫_실패에서_멈추고_뒤_관문은_돌리지_않는다) GREEN. `./gradlew :arena-gate:test --tests '*GateRunnerExceptionTest*'` 1개 GREEN. `./gradlew test --rerun` 전체 108개(기존 94 + `StandingTest` 3 + `GateRunnerTest` 10 + `GateRunnerExceptionTest` 1) 중 107개 GREEN·1개 FAILED(`GateRunnerTest.CleanBot은_모든_관문을_통과한다`), 총 소요 2분 30초 — CleanBot 변경의 여파(위 문단)로 늘어난 시간을 포함해도 실행 시간 자체는 여전히 정상 범위다. 빌드 출력에 그 1건을 빼면 오류·경고 없음.
+
+---
+
 ## 다음 단계
 
 - [x] 스펙 문서 작성 및 자체 검토
