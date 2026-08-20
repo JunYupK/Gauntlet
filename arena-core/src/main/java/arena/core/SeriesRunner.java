@@ -82,7 +82,12 @@ public final class SeriesRunner {
      * finally에서 반드시 shutdown한다.
      */
     private static List<Replay> runParallel(List<Callable<Replay>> tasks) {
-        int threads = Math.max(1, Runtime.getRuntime().availableProcessors());
+        // 최소 2스레드를 강제한다. availableProcessors()가 1인 머신(CI
+        // 컨테이너에서 흔하다)에서 풀 크기가 1이면 모든 태스크가 제출
+        // 순서 그대로 한 스레드에서 순차 실행되므로, 병렬·순차 동일성
+        // 테스트가 사실상 "순차 대 순차"를 비교하는 셈이 되어 스케줄링
+        // 의존성을 전혀 잡아내지 못한 채 항상 GREEN이 나온다.
+        int threads = Math.max(2, Runtime.getRuntime().availableProcessors());
         ExecutorService executor = Executors.newFixedThreadPool(threads);
         try {
             List<Future<Replay>> futures = executor.invokeAll(tasks);

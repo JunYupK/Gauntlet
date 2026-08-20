@@ -54,6 +54,9 @@ class SeriesRunnerTest {
         assertEquals(normal.start0(), swapped.start0(),
                 "시작 위치가 바뀌었다 — 미러링이 아니라 좌석 교대여야 한다");
         assertEquals(normal.start1(), swapped.start1());
+        assertEquals(normal.dir0(), swapped.dir0(),
+                "시작 방향이 바뀌었다 — 미러링이 아니라 좌석 교대여야 한다");
+        assertEquals(normal.dir1(), swapped.dir1());
         assertEquals("a", normal.bot0Id());
         assertEquals("b", swapped.bot0Id(), "교대 경기에서는 b가 0번 좌석에 앉아야 한다");
     }
@@ -65,11 +68,12 @@ class SeriesRunnerTest {
         List<Replay> parallel = SeriesRunner.run(
                 "a", avoid(), "b", hugLeft(), SEEDS, 30, 30, true);
 
-        assertEquals(sequential.size(), parallel.size());
-        for (int i = 0; i < sequential.size(); i++) {
-            assertEquals(sequential.get(i).hash(), parallel.get(i).hash(),
-                    "경기 " + i + "의 결과가 병렬 실행에서 달라졌다");
-        }
+        // Replay는 record다 — 리스트 전체를 한 번에 비교하면 hash뿐
+        // 아니라 swapped·matchId·start0/1·dir0/1을 포함한 모든 필드가
+        // 순서까지 정확히 같은지 검증된다. hash만 비교하면 그 필드들은
+        // 두 경로 사이에 아무것도 검증하지 않는 셈이 된다.
+        assertEquals(sequential, parallel,
+                "병렬 실행과 순차 실행의 리플레이 목록이 달라졌다");
     }
 
     @Test
@@ -77,6 +81,7 @@ class SeriesRunnerTest {
         List<Replay> first = SeriesRunner.run("a", avoid(), "b", hugLeft(), SEEDS, 30, 30, true);
         List<Replay> second = SeriesRunner.run("a", avoid(), "b", hugLeft(), SEEDS, 30, 30, true);
 
+        assertEquals(first.size(), second.size());
         for (int i = 0; i < first.size(); i++) {
             assertEquals(first.get(i).hash(), second.get(i).hash());
         }
