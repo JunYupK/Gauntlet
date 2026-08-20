@@ -22,6 +22,16 @@ import java.util.List;
  */
 public final class RegressionGate implements Gate {
 
+    /**
+     * {@code ctx.bot().name()}을 그대로 시리즈 참가자 id로 쓰면, 제출된
+     * 봇의 이름이 우연히(또는 악의적으로) 베이스라인 이름과 같을 때
+     * {@code bot0Id == bot1Id}인 리플레이가 생긴다 — {@link Standing#of}가
+     * 그런 리플레이에서는 좌석을 제대로 가려낼 수 없다(양쪽 다 subjectId와
+     * 일치해 보이므로). 베이스라인 이름("StraightBot" 등)과 절대 겹치지
+     * 않는 예약어를 대신 쓴다.
+     */
+    private static final String SUBJECT_ID = "subject";
+
     @Override
     public String id() { return "G7"; }
 
@@ -38,19 +48,21 @@ public final class RegressionGate implements Gate {
 
         for (int i = 0; i < baselines.length; i++) {
             List<Replay> replays = SeriesRunner.run(
-                    ctx.bot().name(), subject, names[i], baselines[i],
+                    SUBJECT_ID, subject, names[i], baselines[i],
                     ctx.judgingSeeds(), ctx.width(), ctx.height(), true);
 
-            Standing standing = Standing.of(replays, ctx.bot().name());
+            Standing standing = Standing.of(replays, SUBJECT_ID);
 
             if (standing.losses() > 0) {
+                // 시드마다 정방향·교대 두 경기가 나오므로, 한 시드에서 둘 다
+                // 지면 같은 시드가 목록에 두 번 들어갈 수 있다 — distinct()로
+                // 최대 5개가 서로 다른 시드를 가리키게 한다.
                 List<String> lostSeeds = replays.stream()
-                        .filter(r -> {
-                            int mySeat = r.bot0Id().equals(ctx.bot().name()) ? 0 : 1;
-                            return !r.result().isDraw() && r.result().winner() != mySeat;
-                        })
-                        .limit(5)
+                        .filter(r -> !r.result().isDraw()
+                                && r.result().winner() != Standing.seatOf(r, SUBJECT_ID))
                         .map(r -> String.valueOf(r.seed()))
+                        .distinct()
+                        .limit(5)
                         .toList();
 
                 return GateResult.fail(id(),

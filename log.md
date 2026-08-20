@@ -1154,6 +1154,37 @@ Minor 4건이 왔고, 그중 첫 2건을 컨트롤러가 상향했다 — "이 �
 
 ---
 
+### D52. Task 15 두 번째 리뷰 반려 — Standing의 좌석 판정이 문자열 하나로 뒤집힐 수 있었고, accept 경로와 드리프트 가드 둘 다 테스트가 없었다
+
+**리뷰 결과.** D51 대응이 다시 반려됐다. 이번엔 지킨 것도 명시적으로 확인해 줬다 — G3 목록이 정확히 한 항목만 잃었고 나머지(시계·시드 없는 Random·스레드·파일/네트워크 I/O·리플렉션·Unsafe·ProcessBuilder)는 그대로라는 것, `BlindLoader` 예외 테스트가 진짜 클래스 바이트를 못 읽는 하드 모드 재현이라는 것, `checkSafely`가 `RuntimeException`만 잡고 `Throwable`은 안 잡아서 `OutOfMemoryError`는 여전히 전파된다는 것, CleanBot 분리에 `containsAll(contractGates)`라는 진짜 공허 통과 방지 장치가 있다는 것, `SlowTrap` 테스트가 표본만 줄이고 `P99_LIMIT_MILLIS`는 진짜 상수 그대로 넘긴다는 것(방향이 중요한 그 축은 안 건드렸다는 것) — 전부 리뷰어가 코드를 직접 따라가며 확인했다. 그 위에서 승인을 막은 건 세 가지였다.
+
+**1) `Standing`의 좌석 판정이 봇이 제공하는 문자열 하나로 G7 증거의 절반을 뒤집을 수 있었다.** `int mySeat = r.bot0Id().equals(subjectId) ? 0 : 1;`은 "0번이 아니면 진짜 1번인지"를 확인하지 않았다. `RegressionGate`가 `ctx.bot().name()`을 그대로 `id0`으로 넘기고 `SeriesRunner`는 넘어온 id를 아무 고유성 검사 없이 모든 `Replay`에 그대로 복사하므로, 제출된 봇의 `name()`이 예컨대 `"RandomBot"`을 돌려주면 그 매치업 전체에서 `bot0Id == bot1Id`가 되고, `mySeat`은 항상 0으로 풀리며, 좌석 교대 절반(진짜로는 subject가 1번에 앉는 절반)에서 모든 패배가 승으로, 모든 승이 패로 뒤집힌다. G7의 판정 전부가 `losses() > 0` 하나이므로 이 문자열 하나가 양방향(false accept, false reject)을 다 만든다. 비적대적 형태도 같은 구멍이다 — `Standing.of(replays, "typo")`는 실패하는 대신 그럴듯하고 완전히 틀린 결과를 돌려준다.
+
+**조치.**
+- `RegressionGate`에 `SUBJECT_ID = "subject"`(베이스라인 이름과 절대 겹치지 않는 예약어)를 두고, `SeriesRunner.run`과 `Standing.of` 양쪽에 `ctx.bot().name()` 대신 이걸 넘긴다.
+- `Standing`에 `seatOf(Replay, String)`를 새로 공개해, bot0Id 일치 → 0, bot1Id 일치 → 1, 둘 다 아니면 `IllegalArgumentException`을 던지도록 명시적으로 판정한다. `Standing.of`도 이걸 쓴다.
+- `RegressionGate`의 진 시드 진단(48-51행)이 같은 좌석 판정을 따로 재구현하고 있었다 — 사본을 남기지 않고 `Standing.seatOf`를 그대로 쓰도록 고쳤다. 그 김에 발견한 것: 이 진단이 매치(정방향·교대)를 따로 세서, 한 시드가 두 방향 모두 지면 "진 시드(최대 5개)"에 같은 시드가 두 번 나와 실질적으로 서로 다른 시드는 3개만 보여줄 수 있었다 — `.distinct()`를 넣어 고쳤다.
+- 테스트 두 갈래. `StandingTest`: `subjectId가_리플레이에_없으면_예외를_던진다`(오타 등으로 subject가 아예 없는 경우), `이름이_충돌하면_bot0Id_쪽으로_판정한다`(진짜 이름 충돌은 Standing 하나만으로는 풀 수 없는 잔여 모호함이라는 것과, 그게 지금 어떻게 결정론적으로 해소되는지를 문서로 고정). `RegressionGateTest`: `봇_이름이_베이스라인과_같아도_결과가_왜곡되지_않는다` — `name()`이 `"WallAvoidBot"`을 돌려주는 봇과 정상 이름의 봇을 같은 시드(13·21, StrongBot이 WallAvoidBot에게 진짜로 지는 시드)로 돌려 `GateResult`가 완전히 같은지(`passed()`와 `detail()` 문자열까지) 비교한다.
+- **버그가 실제로 잡히는지 되돌려서 확인했다.** 반려 전 코드(`ctx.bot().name()`을 그대로 쓰는 버전)를 스크래치 클래스로 복원해 같은 두 봇·같은 시드로 돌려보니: 정상 봇은 `[13, 21]`(둘 다 진짜 패배)을 진 시드로 냈지만, 이름이 충돌한 봇은 `[21, 21]`을 냈다 — seed 13의 진짜 패배(교대 방향)가 버그 때문에 승으로 둔갑해 사라지고, 대신 seed 21이 두 번(정방향의 진짜 패배 + 교대 방향에서 새로 조작된 가짜 패배) 나타났다. 정확히 리뷰가 설명한 "false accept이자 false reject"가 실측으로 재현됐다. 수정된 코드로 같은 비교를 돌리면 두 결과가 완전히 같다(`assertEquals(normalResult.detail(), collidingResult.detail())`가 GREEN).
+
+**2) 파이프라인이 봇을 실제로 통과시키는 경로를 아무 테스트도 실행해 보지 않았다.** `GateRunner.run` 호출부는 전부 `failedGate()` 문자열이나 `assertFalse(passed())`만 단정했고, CleanBot 테스트는 계약 관문만 보며, `RegressionGateTest`는 `GateResult`만 보지 `GateReport`는 안 본다. `GateRunner.java:69`(`return new GateReport(..., true, null, "", ...)`)가 항상 false를 반환하거나 `failedGate`가 절대 null이 안 되도록 망가져도 109개 테스트는 그대로 GREEN이었을 것이다 — `GateReport.passed()`는 세대 루프가 분기하는 단 하나의 비트인데, 그게 시험대에 오른 적이 없었다.
+
+**조치.** `GateRunnerTest.강한_봇을_실제로_통과시킨다`을 추가했다 — `StrongBot`을 48-시드 부분집합(`RegressionGateTest`와 같은 근거)으로, 표본은 200으로 줄인 패키지 전용 오버로드를 통해 돌려 `report.passed()==true`·`failedGate()==null`·`results().size()==6`을 확인한다. 표본을 프로덕션 크기(10,000) 그대로 두지 않은 이유: 이 테스트가 확인하려는 건 "accept 경로에 실제로 도달하는가"이지 표본 크기가 아니고, G5 리플레이 겹까지 더해지면 이 테스트 하나가 40초 넘게 더 걸린다(실측: 표본 200으로 46초).
+
+**3) 테스트 전용 오버로드의 "드리프트 방지"는 주장이었지 실체가 없었다 — D51 자체가 그 과장을 사실처럼 적어 놓았다.** D51은 "나머지 9개 트랩 테스트는 전부 오버로드 없는 `run(ctx)`를 그대로 써서 그 상수가 실제로 매 실행에 쓰인다는 것도 함께 고정한다"고 적었다(`task-15-report.md`도 같은 취지로 적었다). 틀렸다 — 함정 테스트는 전부 "어느 관문에서 걸리는가"만 단정하는데, 그건 표본 크기에 완전히 둔감하다(관문이 도는 순서는 표본이 10,000이든 100이든 바뀌지 않는다). `run(GateContext ctx)`의 본문을 `return run(ctx, 100, P99_LIMIT_MILLIS);`로 몰래 바꿔도 스위트 전체가 그대로 GREEN이었을 것이다 — 이 오버로드 자체가 이미 한 번 낳은 것과 정확히 같은 종류의 버그(파라미터가 조용히 무시되는 것)를 이번엔 값 자체가 조용히 줄어드는 방향으로 다시 낳을 수 있었다.
+
+**조치 — 관측 가능한 가드를 만들었다.** `GateRunnerTest.프로덕션_경로는_SAMPLE_SIZE만큼_국면을_실제로_먹인다`를 추가했다. 국면 하나 볼 때마다 세는 봇을 만들어 프로덕션 진입점 `GateRunner.run(ctx)`(오버로드 없는 쪽)로 직접 돌린다. 카운터는 봇 클래스 자신의 필드로 못 둔다 — G2가 인스턴스 필드를 금지하고, `StatelessGate`는 `isSynthetic()` 필드만 건너뛴다. 그래서 테스트 메서드의 지역 변수 `int[] calls`를 익명 `Bot` 구현이 캡처하게 했다 — 캡처된 지역 변수는 컴파일러가 그 익명 클래스에 합성(synthetic) 필드로 넣으므로 G2가 건너뛰고, `calls[0]++`은 배열 원소 대입이라 금지 API 호출도 아니므로 G3도 건드리지 않는다(실제로 이 봇이 G2·G3를 통과해 G4까지 가는 걸 확인했다). 심사 시드는 1개로 좁혔다 — 시드 수에 비례하는 층(G5 리플레이 해시·G7 실전 대국)의 호출 수를 작게 눌러 둬야, 표본 크기에 비례하는 층(G4·G5 ①층·G6)의 변화가 총 호출 수에 뚜렷이 드러난다.
+
+**가드가 실제로 드리프트를 잡는지 실측으로 확인했다.** 시드 1개로 프로덕션 `run(ctx)`를 돌리면 `calls=63,062`(G4 10,000 + G5 ①층 40,000 + G6 약 13,000 + 시드 1개짜리 나머지 층). 같은 조건에서 `run(ctx, 100, P99_LIMIT_MILLIS)`로(=SAMPLE_SIZE를 100으로 몰래 바꾼 상황을 그대로 재현) 돌리면 `calls=3,662`로 뚝 떨어진다 — `SAMPLE_SIZE`(10,000)를 한참 밑돈다. 그래서 단정을 `calls[0] >= GateRunner.SAMPLE_SIZE`로 걸었다 — 프로덕션 값에서는 여유 있게 통과하고(63,062 ≥ 10,000), 드리프트가 재현된 값에서는 실제로 실패한다(3,662 < 10,000이므로).
+
+**D51의 과장을 바로잡는다(D51 본문은 편집하지 않는다).** D51이 "9개 트랩 테스트가 상수가 매 실행에 쓰인다는 것도 함께 고정한다"고 적은 문장은 틀렸다 — 그 테스트들이 실제로 고정하는 건 "어느 관문에서 걸리는가"라는 라우팅뿐이고, 그건 표본 크기와 무관하다. 상수가 실제로 쓰인다는 걸 고정하는 유일한 테스트는 이번에 추가한 `프로덕션_경로는_SAMPLE_SIZE만큼_국면을_실제로_먹인다`이며, 위 실측(63,062 vs 3,662)이 그 근거다.
+
+**보류(원장에 미룸, 리뷰 지시).** `StandingTest`의 좌석 교대 픽스처가 "이름 기반 귀속"과 "swapped 기반 귀속"을 구분해서 보여주지 않는 것; `total()`과 빈 리스트 경로의 테스트 부재; `checkSafely`가 스택 트레이스를 버려서 하네스 버그가 봇 반려처럼 읽히는 것; `StackOverflowError`가 여전히 실행 전체를 죽이는 것; 48-시드 부분집합의 산출 근거가 코드로 고정돼 있지 않은 것.
+
+**검증.** `./gradlew :arena-core:test --tests '*StandingTest*'` 5개(기존 3 + 신규 2) GREEN. `./gradlew :arena-gate:test --tests '*RegressionGateTest*'` 2개(기존 1 + 신규 1) GREEN, 12초 — 이름 충돌 테스트가 실제로 옛 버그를 잡는지는 별도 스크래치 프로브(저장소에는 남기지 않음)로 되돌려서 확인했다(위 1번 조치 참고). `./gradlew :arena-gate:test --tests '*GateRunnerTest*'` 12개(기존 10 + 신규 2) GREEN, 1분 32초. `./gradlew test --rerun` 전체 114개(D51 당시 109 + `StandingTest` 신규 2 + `RegressionGateTest` 신규 1 + `GateRunnerTest` 신규 2) GREEN, 1분 49초, 빌드 출력 오류·경고 없음. 커밋은 아래.
+
+---
+
 ## 다음 단계
 
 - [x] 스펙 문서 작성 및 자체 검토
