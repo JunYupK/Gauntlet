@@ -960,6 +960,25 @@ G7이 시리즈 대전을 필요로 하는데 그게 tournament에 있으면 형
 
 ---
 
+### D44. Task 11 — G3(금지 API 바이트코드 검사), ASM 단일 클래스 스캔의 구멍을 자체 검토에서 찾아 고침
+
+**결정.** `ForbiddenApiGate`를 브리프(`task-11-brief.md`)가 준 코드 그대로 옮겼다. `FORBIDDEN_PREFIXES`·`FORBIDDEN_METHODS` 목록도 손대지 않았다 — `java/lang/Object.hashCode`를 빼거나 다른 것을 더하지 않았다. TDD 순서는 브리프대로: `ForbiddenApiGateTest` 작성 → `./gradlew :arena-gate:test --tests '*ForbiddenApiGateTest*'`로 RED 확인(`ForbiddenApiGate` 심볼 없음, 컴파일 실패) → 구현 → 같은 명령으로 GREEN 확인(7개 통과).
+
+**자체 검토에서 찾은 구멍.** 태스크 지시문이 "봇 클래스만 스캔하는가, 아니면 중첩 클래스·람다도 스캔하는가"를 명시적으로 묻길래 확인해봤다. 임시 함정 봇 셋(스캐폴드로만 쓰고 커밋 전 삭제)으로 실측했다: 람다(`() -> System.nanoTime()`)는 컴파일러가 같은 클래스 안의 private synthetic 메서드로 넣기 때문에 이미 잡혔다(`passed=false`). 하지만 정적 중첩 헬퍼 클래스(`HelperClassTrap.Helper.pick()`이 `System.nanoTime()`을 호출)와 익명 내부 클래스(`new Supplier<>() { ... System.nanoTime() ... }`)로 옮긴 금지 호출은 둘 다 그냥 통과했다(`passed=true`) — 브리프 코드가 `ctx.botClass()` 하나만 읽어 그 파일 하나만 스캔하기 때문이다. G2가 상속으로 뚫렸던 것(D43)과 정확히 같은 모양의 구멍: 구조적 검사가 "한 겹만" 보면 봇 작성자가 다른 클래스로 옮기는 것만으로 우회한다.
+
+**적용한 수정.** `ForbiddenApiGateNestedClassTest`를 새로 추가해(브리프가 못 박은 `ForbiddenApiGateTest.java`는 손대지 않고 별도 파일로) 위 두 우회 케이스로 RED를 확인했다(`assertFalse(r.passed())`가 실패 — 둘 다 부당하게 통과). `ForbiddenApiGate.check`를 단일 클래스 읽기에서 BFS로 바꿨다: 봇의 최상위 클래스부터 시작해, ASM의 `visitInnerClass` 콜백(클래스가 참조하는 모든 중첩 클래스를 컴파일러가 `InnerClasses` 애트리뷰트에 남기는 것을 이용)으로 발견한 자손 클래스를 큐에 넣어 계속 따라간다. 무관한 라이브러리 내부 클래스(예: 봇이 쓰는 `Map.Entry`)까지 끌려오지 않도록, 봇의 최상위 클래스 internal name을 접두어로 삼아 그 자손(`BotClass$...`)만 추린다. 각 클래스는 클래스로더의 `getResourceAsStream`으로만 읽고 `Class.forName`으로 로드하지 않는다 — 봇 코드를 실행하지 않고 바이트만 본다는 원칙을 중첩 클래스에도 유지하기 위해서다. 다시 실행해 GREEN 확인.
+
+**나머지 자체 검토 항목.**
+- **jar 패키징.** `arena-bots-0.1.0.jar`만 클래스패스에 올린 격리된 `URLClassLoader`로 `RandomBot`을 로드하고 그 `Class`를 `GateContext.botClass()`에 직접 넣어 실행해봤다 — `getResourceAsStream`이 jar 안에서도 정상적으로 리졸브되어 `passed=true`가 정확히 나왔다(이 확인용 스캐폴드도 커밋 전 삭제). 디렉터리 클래스패스든 jar든 소유 클래스로더가 통일해서 처리하므로 별도 분기가 필요 없다.
+- **다른 classloader.** `ctx.botClass().getClassLoader()`를 그대로 쓰므로 봇을 로드한 로더가 무엇이든(플러그인 로더 포함) 그 로더의 리소스 공간에서 클래스 파일을 찾는다. `getClassLoader()`가 `null`인 경우(부트스트랩 로더)는 이론상으로만 존재 — `Bot` 인터페이스를 구현하는 실제 봇 클래스가 부트스트랩 클래스패스에 있을 수 없으므로 다루지 않았다.
+- **`Random` 생성자 폭.** `javap java.util.Random`으로 실제 생성자를 확인했다 — `Random()`과 `Random(long)` 딱 둘뿐이다. 디스크립터 `()V` vs `(J)V` 분기가 전체 생성자 표면을 정확히 덮는다는 뜻이고, 브리프 코드가 놓친 세 번째 형태는 없다.
+- **`detail` 정밀도.** 중첩 클래스에서 잡힌 위반의 `detail`은 `ForbiddenApiGateNestedClassTest$HelperClassTrap$Helper.pick → java/lang/System.nanoTime`처럼 실제 클래스 파일 이름(내부 클래스 포함)과 메서드, 정확한 금지 API를 다 담는다 — 봇 작성자가 소스를 뒤지지 않고도 어느 파일의 어느 메서드를 고쳐야 하는지 안다.
+- **`NondeterministicTrap` 충돌 재확인.** 태스크 지시문이 예고한 대로, G3가 `NondeterministicTrap`을 잡는다 — `FORBIDDEN_METHODS`의 `java/lang/Object.hashCode` 규칙을 통해서다(`detail`: `NondeterministicTrap.move → java/lang/Object.hashCode`). 이건 이미 조정된 충돌이므로 목록을 손대지 않았다. G5(결정론 검사)가 생겼을 때 G3보다 먼저 이 함정을 못 잡는다는 것이 테스트로 증명되면, 그때 `java/lang/Object.hashCode`를 목록에서 빼는 판단을 내린다.
+
+**검증.** `./gradlew :arena-gate:test --tests '*ForbiddenApiGate*'` 9개(`ForbiddenApiGateTest` 7 + `ForbiddenApiGateNestedClassTest` 2) GREEN. `./gradlew test --rerun` 전체 72개 GREEN(기존 63 + 신규 9), 빌드 출력 오류·경고 없음. 커밋은 아래.
+
+---
+
 ## 다음 단계
 
 - [x] 스펙 문서 작성 및 자체 검토
