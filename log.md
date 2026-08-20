@@ -1212,6 +1212,30 @@ halved calls=33,062 vs old threshold -> PASS (옛 가드는 이 절반 드리프
 
 ---
 
+### D54. Task 16 — 챔피언전·승격 판정, 이름 충돌을 예약 id로 원천 차단, 회귀 픽스처 실측 오류 정정
+
+**작업.** `arena-tournament` 모듈을 새로 만들고 `Championship.judge(Bot challenger, Bot champion, judgingSeeds, holdoutSeeds, width, height)` → `ChallengeReport`를 구현했다. 심사(시드 1‥50, 100경기) 승점 승률이 `PROMOTION_THRESHOLD=0.60` 이상이면 승격, 승격한 봇에게만 홀드아웃(시드 1001‥1050) 승률을 추가로 재서 함께 기록한다(승격 판정 자체엔 홀드아웃을 쓰지 않는다 — 판정 이후에 재는 참고 지표). 반려되면 패배 경기에서 손실이 큰 수 상위 3개를 `DiagnosisEntry`로 돌려준다. `Gen00Bot`(동작은 `StraightBot`과 동일, 관문 대상이 아님)을 챔피언 계보의 출발점으로 심었다.
+
+**결정 1 — 도전자·챔피언 이름 충돌을 내부 예약 id로 원천 차단.** 이전 태스크(D52)에서 `Standing.seatOf`가 subjectId를 못 찾으면 `IllegalArgumentException`을 던지도록 고쳐졌다. `RegressionGate`는 신뢰할 수 없는 쪽이 한쪽(subject)뿐이라 `SUBJECT_ID="subject"` 하나로 풀렸지만, `Championship`은 도전자·챔피언 **둘 다** 제출된 봇이라 `bot.name()` 둘 다 신뢰할 수 없다. `challenger.name().equals(champion.name())`이면(악의적 제출이든, 우연이든, 심지어 같은 인스턴스를 양쪽에 넘기는 테스트든) 옛 방식대로 `bot.name()`을 그대로 `SeriesRunner`·`Standing`에 넘기면 챔피언전 전체가 예외로 죽는다.
+
+**조치.** `Championship`에 서로 다른 게 보장된 내부 상수 `CHALLENGER_ID="__challenger__"`, `CHAMPION_ID="__champion__"`을 두고, `bot.name()`은 좌석 식별에 전혀 쓰지 않는다 — `SeriesRunner.run`·`Standing.of`·`Standing.seatOf`엔 전부 이 예약 id를 넘긴다. `bot.name()`은 `ChallengeReport.challenger()`/`champion()` 필드(표시용)에만 쓰인다. 이러면 도전자·챔피언 이름이 같아도, 심지어 같은 봇 인스턴스가 두 자리에 다 들어와도 판정은 정상적으로 끝난다 — 제출된 봇이 이름 하나로 하네스를 무너뜨릴 수 없다. `diagnose()`도 브리프 초안의 `r.bot0Id().equals(subjectId) ? 0 : 1`(D52가 정확히 이 패턴 때문에 `Standing.seatOf`를 만들게 된 그 취약 패턴이다) 대신 `Standing.seatOf(r, CHALLENGER_ID)`를 그대로 쓴다.
+
+**테스트로 고정.** `도전자와_챔피언_이름이_같아도_판정이_죽지_않는다`(생성자로 이름을 지정할 수 있는 `NamedStraight`를 양쪽에 같은 이름으로 넘김), `같은_인스턴스로_붙어도_판정이_죽지_않는다`(같은 `Gen00Bot` 인스턴스를 도전자·챔피언 양쪽에 넘김). 둘 다 `assertDoesNotThrow`로 판정이 끝까지 완주하는지 확인한다.
+
+**결정 2 — 60% 문턱의 포함 경계를 실제 대국이 아니라 직접 값으로 찌른다.** "정확히 0.60이면 승격해야 한다"(기준은 이상이지 초과가 아니다)를 실제 봇 대국으로 재현하려면 100경기 중 정확히 60승(또는 승·무 조합)이 나오게 봇을 조작해야 하는데, 그건 그 자체로 취약한 픽스처다. 대신 판정 로직을 `static boolean meetsThreshold(Standing standing)`로 뽑아 패키지 전용으로 열어 두고, `new Standing(60, 0, 40, 0.60)`을 직접 만들어 `assertTrue(meetsThreshold(...))`로, `new Standing(59, 1, 40, 0.595)`로 `assertFalse(...)`로 경계 양쪽을 각각 결정론적으로 고정했다.
+
+**결정 3 — 브리프가 준 회귀 픽스처(`SlightlyDifferentStraight`) 자체가 실측과 어긋났다, 코드를 고쳐 의도를 살렸다.** 브리프 초안은 "직진봇과 거의 같지만 이름만 다르다, 승격 기준을 못 넘어야 한다"는 주석과 함께, "격자 밖으로 나갈 때만 한 번 꺾는다"는 로직을 준다. RED 확인 후 GREEN 단계에서 그대로 돌려 보니 이 테스트가 **실패**했다 — `Gen00Bot` 상대 승점 승률이 0.89로 나와 승격돼 버렸다. 실측해 보면 이유가 분명하다: 직진봇은 벽에 그대로 박아 죽지만, 이 픽스처는 첫 벽 충돌 직전 단 한 번만 피하고 그 뒤로도 죽지 않는 한 계속 산다 — "이름만 다르다"는 주석과 달리 실제로는 생존력이 크게 다른 별개의 전략이었다.
+
+**조치.** 회피 로직을 빼 `move()`를 `return view.myDir();`(직진봇과 완전히 동일한 전략)로 바꿨다. 좌석 교대로 평균이 대칭에 수렴한다는 실측: `wins=50 draws=0 losses=50, scoreRate=0.5` — 60% 문턱을 넉넉히 밑도는 안정적인 회귀 픽스처가 됐다. `PROMOTION_THRESHOLD`나 관문 로직 쪽은 전혀 건드리지 않았다(BRIEF §11-4) — 문턱을 통과 못 시킨 건 픽스처였지, 문턱이 아니었다.
+
+**결정 4 — 진단 필드 명명 매핑.** `MoveAnalysis.reachAfterBest()` → `DiagnosisEntry.reachIfBest`, `MoveAnalysis.reachAfterChosen()` → `DiagnosisEntry.reachChosen`(스펙 §7.1의 `reachBefore`/`reachAfter`보다 의미가 정확한 이름 — 계획 완료 후 스펙 문서를 이 이름으로 맞출 것). 패배 경기당 `LossAnalyzer.worstMoves(r, mySeat, 1)`로 최악의 수 1개씩 뽑아 모은 뒤, 손실 큰 순으로 정렬해 상위 3개만 리포트에 담는다.
+
+**검증.** RED: `./gradlew :arena-tournament:test` — `Championship`·`ChallengeReport`·`DiagnosisEntry`가 없어 컴파일 실패(14개 컴파일 에러), 예상대로. GREEN(1차): 최소 구현 후 11개 중 3개 실패(`같은_봇끼리_붙으면_승격하지_못한다`, `반려되면_진단이_붙는다`, `반려되면_홀드아웃은_돌리지_않는다`) — 원인은 위 결정 3의 픽스처 오류. 픽스처 수정 후 GREEN(2차): `./gradlew :arena-tournament:test` 11개 전부 GREEN. `./gradlew test --rerun` 전체 125개(114+11) GREEN, 3분 내외, 빌드 출력 오류·경고 없음.
+
+**손대지 않은 것.** `StraightBot`·`RandomBot`·`WallAvoidBot`(베이스라인 3종, 동결) 미수정. `PROMOTION_THRESHOLD`·심사/홀드아웃 시드 범위·격자 크기 등 어떤 상수도 브리프 값 그대로.
+
+---
+
 ## 다음 단계
 
 - [x] 스펙 문서 작성 및 자체 검토
