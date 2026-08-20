@@ -12,29 +12,28 @@ import static org.junit.jupiter.api.Assertions.*;
  * 함정 봇 스위트의 본체.
  * 각 함정이 정확히 자기 관문에서 걸려야 한다.
  *
- * 대부분의 함정은 국면 하나 처리 비용이 사실상 0이므로(WeakTrap 포함)
- * 프로덕션 표본 크기(10,000)·심사 시드(1..50) 그대로 먹여도 순식간에
+ * {@code CleanBot}은 계약 관문(G2~G6)의 대조군이지 G7(실력)의 대조군이
+ * 아니다(D51). "관문이 통과시켜야 할 것까지 반려하지 않는가"를 확인하는
+ * 게 CleanBot의 일이고, 그 일을 증명하려면 짧고 뻔한 봇이어야 값어치가
+ * 있다 — 그래서 {@code CleanBot은_계약_관문에서_반려되지_않는다}는 G7을
+ * 보지 않는다. G7의 accept 경로(진짜 강한 봇을 통과시키는가)는
+ * {@link RegressionGateTest}가 {@link arena.gate.traps.StrongBot}으로
+ * 따로 검증한다.
+ *
+ * 대부분의 함정은 국면 하나 처리 비용이 사실상 0이므로(CleanBot·WeakTrap
+ * 포함) 프로덕션 표본 크기(10,000)·심사 시드(1..50) 그대로 먹여도 순식간에
  * 끝난다 — 그래서 {@link #run(Bot)}은 항상 {@link
  * GateRunner#run(GateContext)}(오버로드 없는 쪽)를 그대로 쓴다.
  *
- * 예외가 둘 있다. {@code SlowTrap}은 한 수에 수십 ms를 써서, G4·G5
+ * 예외가 하나 있다. {@code SlowTrap}은 한 수에 수십 ms를 써서, G4·G5
  * (리플레이 겹 포함) 두 겹만 프로덕션 표본으로 먹여도 수십 분이 걸린다
  * (실측: 국면 10,000개·시드 50개 조합으로 2분 넘게 끝나지 않아 강제
- * 종료했다). {@code CleanBot}은 한 수에 수 ms를 쓴다(G7을 통과하려고
- * 국면 여러 개에 걸쳐 무작위 롤아웃을 여러 번 돌리기 때문 — {@link
- * CleanBot} javadoc 참고) — G4(10,000회)·G5 ①층(40,000회)·G6(약
- * 13,000회) 세 겹이 국면 표본 크기에 정비례해서 늘어나므로, 프로덕션
- * 표본 그대로면 이 한 테스트만 10분을 넘긴다.
- *
- * 둘 다 표본·시드를 줄인 별도 오버로드({@link GateRunner#run(GateContext,
- * int, double)})를 쓴다 — 줄이는 건 오직 "어느 관문에서 걸리는가"라는
- * 라우팅 질문(SlowTrap)이나 "G4·G5·G6를 통과하는가"라는 구조적 질문
- * (CleanBot)에 필요한 만큼일 뿐이다. CleanBot의 진짜 관심사인 G7(고정
- * 베이스라인 상대 0패)은 국면 표본이 아니라 심사 시드(judgingSeeds)에
- * 좌우되므로, 심사 시드는 두 테스트 모두 50개 그대로 둔다 — 표본만
- * 줄이면 G7의 엄격함은 조금도 낮아지지 않는다. SAMPLE_SIZE·
- * P99_LIMIT_MILLIS 상수 자체(10,000·5.0)는 {@link
- * #관문_상수는_스펙값을_그대로_쓴다}가 값으로 직접 고정한다.
+ * 종료했다). {@code SlowTrap은_G6에서_걸린다}는 그래서 표본·시드를 줄인
+ * 별도 오버로드({@link GateRunner#run(GateContext, int, double)})를 쓴다
+ * — 줄이는 건 오직 "어느 관문에서 걸리는가"라는 라우팅 질문에 필요한
+ * 만큼일 뿐이다. 이 오버로드가 프로덕션 경로와 어떻게 갈라지지 않게
+ * 막혀 있는지는 {@link GateRunner} javadoc과 {@code
+ * 관문_상수는_스펙값을_그대로_쓴다}를 보라.
  */
 class GateRunnerTest {
 
@@ -42,17 +41,29 @@ class GateRunnerTest {
         return GateRunner.run(GateContextFixture.of(bot));
     }
 
+    /**
+     * CleanBot의 일은 계약 준수(G2~G6)의 대조군이지 실력(G7) 증명이
+     * 아니다(D51) — 짧고 뻔한 봇일수록 "관문이 통과시켜야 할 것까지
+     * 반려하지 않는가"를 더 잘 증명한다. 그래서 이 테스트는 G7 결과를
+     * 보지 않고, results()를 훑어 G2~G6 각각이 실제로 통과했는지만
+     * 확인한다 — CleanBot이 G7에서 막히더라도(WallAvoidBot에게 실제로
+     * 진다, D50) 그건 이 테스트의 관심사가 아니다.
+     */
     @Test
-    void CleanBot은_모든_관문을_통과한다() {
-        // 표본을 200으로 줄여도 G4(합법성)·G5 ①층(결정론)·G6(속도)은
-        // CleanBot에게 사소하게 통과된다 — 이 봇은 항상 유효한 방향을
-        // 돌려주고, 순수 함수이며, 5ms 상한 대비 여유가 크다. G7(고정
-        // 베이스라인 0패, 이 테스트가 실제로 검증하려는 것)은 표본이
-        // 아니라 심사 시드에 좌우되므로 50개 그대로 둔다.
-        GateContext ctx = GateContextFixture.of(new CleanBot());
-        GateReport report = GateRunner.run(ctx, 200, GateRunner.P99_LIMIT_MILLIS);
-        assertTrue(report.passed(),
-                "대조군이 " + report.failedGate() + "에서 막혔다: " + report.detail());
+    void CleanBot은_계약_관문에서_반려되지_않는다() {
+        GateReport report = run(new CleanBot());
+
+        List<String> contractGates = List.of("G2", "G3", "G4", "G5", "G6");
+        for (GateResult r : report.results()) {
+            if (!contractGates.contains(r.gateId())) continue;
+            assertTrue(r.passed(), r.gateId() + "가 CleanBot을 반려했다: " + r.detail());
+        }
+        // 계약 관문 5개가 전부 실제로 채점됐는지도 확인한다 — G7에서
+        // 일찍 멈춰 CleanBot이 애초에 다섯 관문을 다 거치지 못했다면
+        // 위 루프는 아무것도 못 보고 공허하게 통과해버린다.
+        List<String> checked = report.results().stream().map(GateResult::gateId).toList();
+        assertTrue(checked.containsAll(contractGates),
+                "계약 관문 5개를 다 거치지 못했다: " + checked);
     }
 
     @Test
