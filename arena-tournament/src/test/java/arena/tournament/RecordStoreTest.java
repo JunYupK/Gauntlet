@@ -29,6 +29,17 @@ class RecordStoreTest {
                 List.of(new DiagnosisEntry(12, 87, "UP", "LEFT", 214, 31, 183)));
     }
 
+    private GateReport passed() {
+        return new GateReport("Gen08Bot", true, null, "",
+                List.of(GateResult.pass("G1"), GateResult.pass("G2")));
+    }
+
+    private ChallengeReport challengePromoted() {
+        return new ChallengeReport("Gen08Bot", "Gen07Bot", true, 0.68, 0.60,
+                68, 5, 27, 0.62,
+                List.of());
+    }
+
     @Test
     void 첫_시도는_1번이다(@TempDir Path tmp) {
         assertEquals(1, new RecordStore(tmp).nextAttempt(7));
@@ -198,6 +209,48 @@ class RecordStoreTest {
     void 시도가_없는_세대의_이력은_빈_리스트다(@TempDir Path tmp) {
         RecordStore store = new RecordStore(tmp);
         assertTrue(store.historyOf(42).isEmpty());
+    }
+
+    // --- 성공 경로도 두 verdict 모두 실제로 거친다 (리뷰 반려 1) ---
+
+    @Test
+    void 관문을_통과하면_이력에_PASSED로_남는다(@TempDir Path tmp) {
+        RecordStore store = new RecordStore(tmp);
+        store.saveGateReport(8, 1, "class Clean {}", passed());
+
+        List<AttemptRecord> history = store.historyOf(8);
+
+        assertEquals(1, history.size());
+        assertEquals("PASSED", history.get(0).verdict());
+        assertEquals("GATE", history.get(0).stage());
+        assertNull(history.get(0).failedGate());
+    }
+
+    @Test
+    void 챔피언전에서_승격하면_이력에_PROMOTED로_남는다(@TempDir Path tmp) {
+        RecordStore store = new RecordStore(tmp);
+        store.saveChallengeReport(8, 1, challengePromoted());
+
+        List<AttemptRecord> history = store.historyOf(8);
+
+        assertEquals(1, history.size());
+        assertEquals("PROMOTED", history.get(0).verdict());
+        assertEquals("CHAMPIONSHIP", history.get(0).stage());
+    }
+
+    // --- 개행은 리터럴 "\n"으로 고정된다: OS(System.lineSeparator())에 기대지 않는다 ---
+
+    @Test
+    void JSON_출력에_CR이_섞이지_않는다(@TempDir Path tmp) throws Exception {
+        RecordStore store = new RecordStore(tmp);
+        store.saveGateReport(7, 1, "class A {}", rejected("G3"));
+        store.saveChallengeReport(7, 2, challengeRejected());
+
+        byte[] gateBytes = Files.readAllBytes(tmp.resolve("gen-07/attempt-1/gate-report.json"));
+        byte[] champBytes = Files.readAllBytes(tmp.resolve("gen-07/attempt-2/championship.json"));
+
+        for (byte b : gateBytes) assertNotEquals((byte) '\r', b, "gate-report.json에 CR이 섞였다");
+        for (byte b : champBytes) assertNotEquals((byte) '\r', b, "championship.json에 CR이 섞였다");
     }
 
     // --- historyOf는 읽기 전용이어야 한다: 없는 시도 디렉터리를 만들면 안 된다 ---

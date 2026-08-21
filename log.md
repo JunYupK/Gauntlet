@@ -1293,6 +1293,31 @@ ChampionshipTest > 도전자와_챔피언_이름이_같아도_판정이_죽지_�
 
 ---
 
+### D57. Task 17 리뷰 반려 — 성공 경로(PASSED/PROMOTED) 미검증, 개행 문자가 OS에 의존
+
+**리뷰 결과.** D56의 경로 탈출 방어, 바이트 단위 재현성, NaN 처리, `nextAttempt` 보고-전용 결정, `historyOf`의 명시적 순회, 부작용 제거(2차 커밋)는 전부 실제로 검증했다며 승인. 반려는 두 갈래.
+
+**1) 성공 verdict(PASSED, PROMOTED) 두 갈래가 14개 테스트 어디서도 실행되지 않았다.** `historyOf`의 `r.passed() ? "PASSED" : "REJECTED"`와 `r.promoted() ? "PROMOTED" : "REJECTED"` 두 삼항식에서, 테스트 픽스처가 전부 `rejected(...)`(관문)와 `challengeRejected()`(챔피언전, `promoted=false`)뿐이라 두 삼항식 모두 `false` 분기만 밟혔다. 특히 D56 본문이 "브리프 javadoc의 PROMOTED/REJECTED 이분법이 틀렸다, 실제로는 PASSED가 있는 세 값이다"라고 직접 정정해 놓고, 정작 그 세 번째 값(PASSED)과 승격 케이스(PROMOTED)를 검증하는 테스트가 하나도 없었다 — 이 태스크의 존재 이유("관문을 통과했는지, 승격했는지, 왜 아닌지")의 절반(통과·승격)이 미검증 상태로 커밋됐다.
+
+**조치.** `passed()`(관문 통과 픽스처)와 `challengePromoted()`(승격 픽스처, `promoted=true`, `holdoutScoreRate=0.62`, 진단 빈 리스트)를 추가하고, `관문을_통과하면_이력에_PASSED로_남는다`·`챔피언전에서_승격하면_이력에_PROMOTED로_남는다` 두 테스트로 각각 `verdict`·`stage`·(관문 쪽은) `failedGate==null`을 고정했다. 실제로 물리는지 두 삼항식을 뒤집어(`r.promoted() ? "REJECTED" : "PROMOTED"`, `r.passed() ? "REJECTED" : "PASSED"`) 같은 스위트를 돌렸다:
+```
+RecordStoreTest > 챔피언전에서_승격하면_이력에_PROMOTED로_남는다(Path) FAILED
+RecordStoreTest > 이력에_반려_사유가_순서대로_쌓인다(Path) FAILED
+RecordStoreTest > 관문을_통과하면_이력에_PASSED로_남는다(Path) FAILED
+17 tests completed, 3 failed
+```
+새로 추가한 2개 외에 브리프가 준 `이력에_반려_사유가_순서대로_쌓인다`도 같은 뒤집기에 걸렸다(그 테스트가 반려 케이스의 `verdict=="REJECTED"`를 이미 확인하고 있었으므로, 뒤집으면 반려도 잘못된 값을 받는다) — 우연한 이중 방어다. 확인 후 원래 코드로 복원, `diff`로 리뷰 이전 코드와 완전히 같음을 확인했다.
+
+**2) `SerializationFeature.INDENT_OUTPUT`의 기본 pretty printer가 `System.lineSeparator()`를 쓴다.** 리눅스에서는 LF라 지금까지 아무 테스트도 이 차이를 드러내지 못했지만, 이 저장소를 만든 기계와 나중에 다시 읽고 검증하는 기계의 OS가 다르면(예: 윈도우에서 CRLF로 다시 씀) 같은 입력이 다른 바이트를 낸다 — "바이트 단위로 재현 가능하다"는 이 태스크의 핵심 주장이 딱 이 지점(산출물을 쓰는 유일한 곳)에서 OS에 종속돼 있었다. 리뷰가 지적한 대로, 같은 JVM 안에서 두 번 직렬화해 비교하는 기존 테스트로는 이 차이를 애초에 잡을 수 없다(OS가 하나뿐이므로).
+
+**조치.** `DefaultPrettyPrinter`에 `DefaultIndenter("  ", "\n")`을 객체·배열 양쪽에 명시적으로 박아 `ObjectMapper.setDefaultPrettyPrinter`로 지정했다 — 개행이 더 이상 `System.lineSeparator()}`를 참조하지 않고 리터럴 `"\n"`으로 고정된다. 직접 확인용 별도 스크립트로 기본 pretty printer와 고정한 pretty printer의 출력 바이트를 비교했는데, 리눅스에서는 (예상대로) 바이트가 동일했다 — 이 환경에서 회귀를 잡는 테스트가 아니라, "설정을 OS에 맡기지 않는다"는 구조적 보장이라는 점을 리포트에 명시했다. 회귀 테스트 `JSON_출력에_CR이_섞이지_않는다`는 gate-report.json·championship.json 바이트에 `\r`(0x0D)이 하나도 없음을 확인한다 — 이 역시 리눅스에서는 수정 전 코드로도 통과하는 테스트지만(고정하지 않아도 우연히 LF), 명시적 인덴터가 실제로 무엇을 출력하는지 문서화하는 용도로 남겨둔다.
+
+**검증.** `./gradlew :arena-tournament:test --tests '*RecordStoreTest*'` 17개(기존 14 + 신규 3: PASSED 1, PROMOTED 1, CR 부재 1) 전부 GREEN. `./gradlew test --rerun` 전체 143개(126+17) GREEN, 2분 6초, 빌드 출력 오류·경고 없음. `records/`는 이번에도 생성되지 않았다.
+
+**손대지 않은 것(리뷰가 원장에 미루라고 지시한 항목).** `nextAttempt`가 손상된 `attempt-*` 디렉터리 이름(숫자가 아닌 접미사)을 만나면 `NumberFormatException`을 감싸지 않고 그대로 던지는 것, `historyOf`가 `attemptDir()`은 만들어졌지만 아직 어느 리포트 JSON도 쓰이지 않은(쓰기 도중 죽은) 시도 디렉터리를 조용히 건너뛰는 것.
+
+---
+
 ## 다음 단계
 
 - [x] 스펙 문서 작성 및 자체 검토

@@ -2,6 +2,8 @@ package arena.tournament;
 
 import arena.core.Replay;
 import arena.gate.GateReport;
+import com.fasterxml.jackson.core.util.DefaultIndenter;
+import com.fasterxml.jackson.core.util.DefaultPrettyPrinter;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 
@@ -37,7 +39,19 @@ import java.util.List;
  */
 public final class RecordStore {
 
+    /**
+     * 개행 문자를 "\n"으로 고정한다. Jackson의 기본 pretty printer는
+     * {@code System.lineSeparator()}를 쓰므로, 손대지 않으면 이 기록을
+     * 만든 OS에 따라 같은 입력도 다른 바이트(리눅스 LF vs. 윈도우 CRLF)가
+     * 나올 수 있다 — 이 프로젝트의 산출물은 "다른 기계에서 다시 읽고
+     * 재검증"돼야 하므로, 개행을 OS에 맡기지 않고 리터럴로 못박는다.
+     */
+    private static final DefaultPrettyPrinter PRETTY_PRINTER = new DefaultPrettyPrinter()
+            .withObjectIndenter(new DefaultIndenter("  ", "\n"))
+            .withArrayIndenter(new DefaultIndenter("  ", "\n"));
+
     private static final ObjectMapper MAPPER = new ObjectMapper()
+            .setDefaultPrettyPrinter(PRETTY_PRINTER)
             .enable(SerializationFeature.INDENT_OUTPUT);
 
     private final Path root;
