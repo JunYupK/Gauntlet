@@ -1267,6 +1267,28 @@ ChampionshipTest > 도전자와_챔피언_이름이_같아도_판정이_죽지_�
 
 ---
 
+### D56. Task 17 — 기록 저장소, nextAttempt는 5회 한도를 강제하지 않고 보고만 한다
+
+**작업.** `arena-tournament`에 `RecordStore(Path root)`를 구현했다. `saveGateReport`/`saveChallengeReport`/`saveReplays`로 세대·시도별 디렉터리(`gen-%02d/attempt-N/`)에 봇 소스와 관문·챔피언전 리포트를 JSON으로 남기고, `historyOf(generation)`로 시도 이력을 번호 순으로 되읽는다. `AttemptRecord`가 한 시도(세대·번호·verdict·stage·failedGate·detail)를 표현한다. D54~D55에서 이미 미사용 상태로 지적됐던 Jackson(`jackson-databind:2.18.2`)이 이 태스크에서 처음 실사용됐다.
+
+**결정 1 — `nextAttempt`는 재시도 한도(5회, BRIEF §7)를 강제하지 않고 다음 번호를 보고만 한다.** 브리프 인터페이스는 `int nextAttempt(int generation)`으로, 예외를 던질지 캡을 걸지에 대한 언급이 없다. 두 선택지를 저울질했다: (a) 5회를 넘으면 예외를 던져 저장소 스스로 한도를 지킨다, (b) 그냥 다음 번호를 계속 보고하고 한도 판단은 호출자(다음 태스크의 세대 루프)에 맡긴다. (a)를 기각한 이유는 CLAUDE.md §2("반려 이력을 지우지 않는다")와 정면으로 부딪히기 때문이다 — 저장소가 6번째 저장 시도 자체를 예외로 막아버리면, "재시도가 다섯 번을 넘었다"는 사실을 기록할 방법이 없어진다. 한도를 넘겼는데도 무슨 일이 있었는지 알아야 CONVERGED 판정의 증거가 남는다. (b)를 택했다: `RecordStore`는 "무슨 일이 있었는지"의 진실만 담고, "다음에 무엇을 허용할지"는 세대 루프의 책임으로 명확히 분리했다. 경계를 `다섯_번째_시도를_넘겨도_nextAttempt는_예외_없이_다음_번호를_보고한다` 테스트로 고정했다 — 시도 5개를 저장한 뒤 `nextAttempt(9)`가 예외 없이 6을 돌려주고, `historyOf(9)`에 5개 전부가 남는지 확인한다.
+
+**결정 2 — 바이트 단위 재현성은 record 필드 순서에 이미 내재돼 있다, 그래도 직접 증명한다.** Jackson은 record의 프로퍼티 순서를 바이트코드의 컴포넌트 선언 순서에서 얻으므로(2.12+ record 지원), HashMap 반복 순서 같은 비결정성이 끼어들 여지가 없다 — 직렬화 대상(`GateReport`, `ChallengeReport`, `DiagnosisEntry`, `Replay`, `AttemptRecord`) 어디에도 `Map`이 없다. 그래도 추론에 기대지 않고, 같은 `GateReport`/`ChallengeReport` 인스턴스를 서로 다른 두 세대(1, 2)에 저장해 `Files.readAllBytes`로 바이트 배열 자체를 `assertArrayEquals`로 비교하는 테스트 두 개를 추가했다. 타임스탬프 등 시간 의존 필드는 애초에 어떤 record에도 없다.
+
+**결정 3 — `holdoutScoreRate`의 `NaN`은 별도 설정 없이 문자열 `"NaN"`으로 안전하게 왕복된다, 확인 후 그대로 둔다.** JSON 문법에 NaN 리터럴이 없어 처리를 정해야 했다. 별도 클래스파일로 Jackson 기본 `ObjectMapper` 동작을 직접 찔러봤다: `writeValueAsString`은 `{"x":"NaN"}`(따옴표 있는 문자열)을 내놓고, 같은 기본 매퍼로 `readValue`가 별도 `ALLOW_NON_NUMERIC_NUMBERS` 설정 없이 그대로 `Double.NaN`으로 되읽는다. 커스텀 직렬화기나 `JsonWriteFeature` 설정을 추가할 이유가 없었다 — 이미 유효한 JSON이고 왕복도 된다. `반려_리포트의_홀드아웃_승률_NaN이_문자열로_안전하게_직렬화된다` 테스트로 `"holdoutScoreRate" : "NaN"` 문자열 존재와 기본 `ObjectMapper`로의 왕복(`Double.isNaN`)을 함께 고정했다.
+
+**결정 4 — 봇이 통제하는 문자열은 어디서도 경로 구성에 쓰지 않는다.** 이 하네스에서 봇 제출 문자열(이름, gate detail 등)이 공격 표면이 된 전례가 있다(D54~D55, 좌석 id로 오용된 사례). `RecordStore`의 경로는 `root/gen-%02d/attempt-%d/...`로만 구성되고, 두 자리 모두 하네스가 넘기는 `int`다 — `GateReport.botName`/`failedGate`/`detail`, `botSource` 문자열은 전부 JSON *값*이나 파일 *내용*으로만 들어가고 `Path.resolve`엔 한 번도 넘어가지 않는다. `봇_소스에_경로_탈출_문자열이_있어도_root_밖으로_새지_않는다` 테스트로, 봇 소스에 `../../../../etc/passwd`를 흉내낸 문자열과 gate id에 `../../G3`를 넣어도 지정된 `bot.java` 자리에 그대로 내용으로만 쓰이고 `root` 바깥에는 아무 것도 생기지 않음을 확인했다.
+
+**추가로 고정한 것.** 브리프가 준 6개 테스트 외에, 인터페이스에는 있지만 브리프 예시엔 없던 `saveReplays`를 커버하는 테스트(`리플레이를_JSON으로_남긴다`)와, `historyOf`의 빈 세대 경계(`시도가_없는_세대의_이력은_빈_리스트다`, 예외 없이 빈 리스트)를 추가했다.
+
+**바로잡은 것.** 브리프의 `AttemptRecord` javadoc은 "verdict는 PROMOTED 또는 REJECTED"라고 적었지만, 브리프 자신의 최소 구현 코드는 관문만 통과했을 때 `"PASSED"`를 쓴다(챔피언전까지 가야 PROMOTED다). javadoc이 실제 구현이 내는 세 번째 값을 누락한 것이므로, 코드 동작(PASSED/PROMOTED/REJECTED 세 값)을 정확히 반영하도록 javadoc을 고쳤다 — 동작 자체는 브리프 그대로다.
+
+**검증.** RED: `./gradlew :arena-tournament:test --tests '*RecordStoreTest*'` — `RecordStore`, `AttemptRecord` 없어 12개 컴파일 에러, 예상대로. GREEN(브리프 6개): 같은 명령, 6개 전부 PASS. 이후 4가지 요구사항(재현성·NaN·5회 한도·경로 탈출)을 검증하는 테스트 7개를 추가해 `RecordStoreTest` 13개 전부 GREEN. `./gradlew test --rerun` 전체 139개(126+13) GREEN, 2분 5초, 빌드 출력 오류·경고 없음. 매 테스트가 `@TempDir`을 쓰므로 저장소 루트의 `records/`(`.gitignore` 대상)는 어떤 테스트에서도 생성되지 않았다 — `git status`로 확인.
+
+**손대지 않은 것.** `RecordStore`는 저장·조회만 하고 세대 루프(다음 태스크)가 할 CONVERGED 판정이나 5회 한도 강제는 구현하지 않았다. `saveReplays`가 저장하는 `replays.json`을 다시 읽어오는 메서드는 인터페이스에 없어 추가하지 않았다.
+
+---
+
 ## 다음 단계
 
 - [x] 스펙 문서 작성 및 자체 검토
