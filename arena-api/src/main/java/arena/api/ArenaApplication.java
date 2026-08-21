@@ -3,6 +3,7 @@ package arena.api;
 import arena.api.cli.ChallengeCommand;
 import arena.api.cli.GateCommand;
 import arena.api.cli.RecordCommand;
+import arena.bots.BotRegistry;
 
 /**
  * CLI 진입점.
@@ -24,23 +25,64 @@ import arena.api.cli.RecordCommand;
  *      개별 관문의 예외를 이미 실패로 바꿔 삼키므로(GateRunner
  *      javadoc 참고) 여기까지 새어 나오는 예외는 대개 RecordStore의
  *      파일 I/O 실패 같은 진짜 하네스 결함이다.
+ *
+ * {@link BotRegistry#validateRegistration()}을 명령을 처리하기 전에
+ * 매번 부른다 — 등록된 봇 이름이 규칙(형식·중복·"|")을 어기면 그
+ * 자체가 하네스 결함(3)이지 판정 거부(1)가 아니다. 정적 초기화
+ * 블록으로 이 검증을 걸지 않는 이유는 {@link BotRegistry}의 클래스
+ * javadoc에 있다 — 요약하면, 정적 초기화가 던지는 예외는 JLS
+ * 12.4.2에 따라 {@link ExceptionInInitializerError}로 감싸이고
+ * ({@code RuntimeException}이 아니라 {@code Error}라 아래 catch가
+ * 못 잡는다), 같은 JVM에서 재시도하면 원래 메시지도 없는
+ * {@link NoClassDefFoundError}가 대신 나온다. 평범한 메서드 호출로
+ * 바꾸면 매번 순수 {@link IllegalStateException}이라 아래 catch가
+ * 항상 똑같이 3으로 잡는다.
  */
 public final class ArenaApplication {
 
+    private static final String USAGE = """
+            사용법:
+              gate <BotName>        관문 G2~G7
+              challenge <BotName>   챔피언전 100경기
+              record [--verify]     발표 번들 생성 / 재현 검증
+            """;
+
     public static void main(String[] args) {
+        System.exit(run(args));
+    }
+
+    /**
+     * 실제 판정 로직. {@code System.exit}을 부르지 않는다 — {@code main}만
+     * 이 반환값으로 종료하고, 테스트는 프로세스를 죽이지 않고 이
+     * 메서드를 안전하게 직접 부를 수 있다.
+     */
+    static int run(String[] args) {
+        return run(args, BotRegistry::validateRegistration);
+    }
+
+    /**
+     * {@code registrationCheck}를 주입할 수 있는 시야. 프로덕션 경로
+     * ({@link #run(String[])})는 언제나 {@link BotRegistry#validateRegistration}을
+     * 그대로 써서 이 오버로드로 위임한다.
+     *
+     * 존재 이유는 순전히 테스트다: 실제 {@code BotRegistry}의 등록
+     * 목록은 항상 유효해서(그리고 {@code private static final}이라
+     * 테스트가 오염시킬 수도 없어서) "등록 검증이 실패하면 이 클래스의
+     * catch가 그걸 종료 코드 3으로 정확히 매핑하는가"를 프로덕션
+     * 경로만으로는 실측할 수 없다. 이 오버로드로 실패하는 검사를
+     * 주입하면, 실제 {@code main}이 쓰는 것과 완전히 같은 try/catch를
+     * 그대로 통과시켜 그 매핑을 증명할 수 있다.
+     */
+    static int run(String[] args, Runnable registrationCheck) {
         if (args.length == 0) {
-            System.out.println("""
-                    사용법:
-                      gate <BotName>        관문 G2~G7
-                      challenge <BotName>   챔피언전 100경기
-                      record [--verify]     발표 번들 생성 / 재현 검증
-                    """);
-            System.exit(2);
+            System.out.println(USAGE);
+            return 2;
         }
 
-        int code;
         try {
-            code = switch (args[0]) {
+            registrationCheck.run();
+
+            return switch (args[0]) {
                 case "gate"      -> GateCommand.run(requireArg(args, "gate <BotName>"));
                 case "challenge" -> ChallengeCommand.run(requireArg(args, "challenge <BotName>"));
                 case "record"    -> RecordCommand.run(args.length > 1 && args[1].equals("--verify"));
@@ -49,19 +91,32 @@ public final class ArenaApplication {
                     yield 2;
                 }
             };
+        } catch (UsageError e) {
+            System.out.println(e.getMessage());
+            return 2;
         } catch (RuntimeException e) {
             System.err.println("하네스 오류 — 봇의 잘못이 아니다: " + e);
             e.printStackTrace();
-            code = 3;
+            return 3;
         }
-        System.exit(code);
     }
 
     private static String requireArg(String[] args, String usage) {
         if (args.length < 2) {
-            System.out.println("봇 이름이 필요하다: " + usage);
-            System.exit(2);
+            throw new UsageError("봇 이름이 필요하다: " + usage);
         }
         return args[1];
+    }
+
+    /**
+     * 인자 누락 같은 호출 오류(종료 코드 2)를 나타낸다. {@code System.exit}을
+     * {@link #requireArg}에서 직접 부르지 않는 이유이기도 하다 — 직접
+     * 불렀다면 {@link #run(String[], Runnable)}을 테스트가 호출할 때마다
+     * 인자가 부족한 경로에서 테스트 JVM 자체가 죽어버린다. 예외로
+     * 표현하면 {@link #run(String[], Runnable)}의 catch가 다른
+     * {@code RuntimeException}(하네스 오류, 3)과 구분해 2로 매핑한다.
+     */
+    private static final class UsageError extends RuntimeException {
+        UsageError(String message) { super(message); }
     }
 }

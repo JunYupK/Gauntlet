@@ -1448,6 +1448,65 @@ RecordCommandTest > gallery_json의_hash를_조작하면_verify가_1을_반환�
 
 ---
 
+### D62. Task 19 리뷰 반려 반영(2차) — `BotRegistry` 정적 초기화가 종료 코드 계약을 깼다
+
+**리뷰 결과.** D61의 다섯 항목(`Seeds.ROUND_ROBIN` 단일 출처화, 두 verify 층의 독립 실패 증거, `GateCommand`/`ChallengeCommand`의 종료 코드 2 가드 증거, `BotRegistry` 등록 검증 세 규칙과 정렬·최신세대 동어반복 정정, `.gitignore`)를 리뷰어가 전부 재확인해 승인했다 — `ROUND_ROBIN_SEEDS`가 진짜로 지워졌는지, `build` 호출부 다섯 곳이 전부 갱신됐는지, 두 verify 테스트가 실제로 다른 메커니즘(`matchId`는 `ReplayHash.of`의 계산 필드가 아니라서 바이트 대조 층만 잡고, `hash` 조작은 새 번들을 짓지도 않는 재계산 층에서 곧바로 걸린다)을 증명하는지, `BotRegistryTest`의 교체된 두 어서션이 미래의 `Gen100Bot`에서도 우연이 아니라 구조적으로 살아남는지까지 직접 실행해 확인했다고 밝혔다. 다만 D61이 새로 들여온 문제 하나를 실측으로 잡아냈다.
+
+**문제.** `BotRegistry.java:61`의 `static { validate(GENERATIONS, BASELINES); }`가 종료 코드 계약을 정확히 그 검증이 발동하는 순간 깬다. `validate`가 던지는 `IllegalStateException`은 `RuntimeException`이지만, JLS 12.4.2에 따라 정적 초기화 블록을 빠져나가는 예외는 무엇이든 `ExceptionInInitializerError`(`Error`의 하위 클래스)로 감싸인다 — `ArenaApplication.java`의 `catch (RuntimeException e)`는 `Error`를 보지 못하므로 이 예외를 못 잡는다. 리뷰어의 실측:
+```
+Exception in thread "main" java.lang.ExceptionInInitializerError
+Caused by: java.lang.IllegalStateException: boom
+EXIT CODE: 1
+```
+raw 스택 트레이스가 그대로 새어 나가고, JVM 기본 종료 코드는 하필 이 프로젝트가 "판정에 의한 거부"로 예약한 1이다 — `ArenaApplication`의 javadoc이 "코드 1과 절대 겹치지 않아야 한다"고 명시한 바로 그 경계가 뭉개진다. 게다가 이건 **수정 전보다 후퇴한 동작**이었다: D61 이전에는 형식이 안 맞는 세대 이름이 `generationNumber`에서 지연 평가되는 평범한 `NumberFormatException`으로 터져 기존 catch가 정확히 3으로 잡았다. D61의 검증 추가는 메시지를 개선하고 검증 시점을 앞당겼지만 그 과정에서 종료 코드를 잃었다. 오늘 통과하는 이유는 순전히 등록이 항상 유효해서 — 그래서 어떤 테스트도 이 경로를 밟지 않았다.
+
+**선택.** 리뷰가 제시한 두 대안(① 정적 초기화를 유지하고 `main`이 `Error` 형태 둘 다 처리, ② 정적 초기화를 아예 걷어내고 평범한 메서드로 노출) 중 ②를 택했다. ①은 근본적으로 더 취약하다: 같은 JVM에서 클래스를 **두 번째** 건드리면 `ExceptionInInitializerError`가 아니라 `NoClassDefFoundError`가 나오는데(직접 실측: 아래), 캐치 블록이 첫 번째 형태만 언랩하면 두 번째부터는 쓸모없는 메시지를 낸다 — 두 가지 Error 서브타입을 영원히 나란히 처리해야 하는 유지보수 부담이 남는다. ②는 이 문제 범주 자체를 없앤다: 평범한 정적 메서드 호출은 클래스 로딩 이력에 좌우되지 않으므로 "첫 번째는 이렇고 두 번째부터는 다르다"는 게 원천적으로 없다.
+
+**조치.** `BotRegistry`에서 `static { ... }` 블록을 지우고 `public static void validateRegistration()`(내부적으로 `validate(GENERATIONS, BASELINES)`를 그대로 호출)을 새로 열었다. `validate` 자체도 패키지 전용에서 `public`으로 올렸다 — 등록 검증이 `ArenaApplication`의 종료 코드 매핑까지 실제로 흘러가는지를 다른 모듈(`arena-api`)의 테스트가 증명하려면, 합성 목록을 그 메서드에 직접 넣을 길이 패키지 경계를 넘어 있어야 하기 때문이다.
+
+`ArenaApplication`도 다시 짰다: `main`은 이제 `System.exit(run(args))`만 하고, 실제 판정은 `System.exit`을 부르지 않는 `run(String[])`이 맡는다 — 그래야 테스트가 프로세스를 죽이지 않고 이 메서드를 직접 부를 수 있다. `run(String[])`은 `run(args, BotRegistry::validateRegistration)`으로 위임하고, 이 3-인자(정확히는 2-인자: `args`, `Runnable registrationCheck`) 오버로드가 프로덕션과 테스트가 공유하는 실제 try/catch를 담는다 — 실패하는 검사를 테스트가 이 자리에 주입해, 실제 `main`이 쓰는 것과 완전히 같은 예외 처리 경로로 "등록 검증 실패 → 종료 코드 3"을 증명할 수 있게 했다.
+
+이 리팩터가 `requireArg`의 기존 결함도 하나 같이 드러냈다: 원래 `System.exit(2)`를 직접 불렀는데, `run`이 더 이상 무조건 `System.exit`으로 끝나지 않으므로 그대로 뒀다면 봇 이름이 빠진 호출을 테스트가 재현할 때마다 테스트 JVM 자체가 죽었을 것이다. 전용 언체크 예외(`UsageError extends RuntimeException`)로 바꿔 `run`의 catch가 다른 `RuntimeException`(하네스 오류, 3)과 구분해 2로 매핑하게 했다 — 메시지·종료 코드 모두 기존과 동일하고, 부작용만 없앴다.
+
+**실측 — 수정 전 회귀 재현.** 임시로 형식 위반 이름("Broken")을 `GENERATIONS`에 넣고, D61 시점의 `BotRegistry`(정적 블록 버전)·`ArenaApplication`(구 catch)으로 컴파일해 실제 `java` 프로세스로 돌렸다:
+```
+$ java -cp $CP arena.api.ArenaApplication gate Gen00Bot
+Exception in thread "main" java.lang.ExceptionInInitializerError
+	at arena.api.cli.GateCommand.run(GateCommand.java:31)
+	at arena.api.ArenaApplication.main(ArenaApplication.java:44)
+Caused by: java.lang.IllegalStateException: 세대 봇 이름이 "Gen<숫자>Bot" 형식이 아니다: "Broken"
+	at arena.bots.BotRegistry.validate(BotRegistry.java:82)
+	at arena.bots.BotRegistry.<clinit>(BotRegistry.java:66)
+	... 2 more
+EXIT CODE: 1
+```
+리뷰어의 실측과 정확히 같은 모양(`ExceptionInInitializerError`, 원인은 잡히지만 종료 코드는 1)이 재현됐다. 같은 JVM에서 `BotRegistry`를 두 번째로 건드리는 별도 실험(작은 Probe 클래스로 `byName`을 연속 두 번 호출)도 돌렸다:
+```
+1st touch: java.lang.ExceptionInInitializerError / cause=java.lang.IllegalStateException: ...
+2nd touch: java.lang.NoClassDefFoundError / cause=java.lang.ExceptionInInitializerError: Exception java.lang.IllegalStateException: ...
+```
+두 Error 타입이 서로 다르다는 리뷰의 지적도 실측으로 확인됐다 — 이 JDK(21)에서는 `NoClassDefFoundError`의 cause 체인을 타고 내려가면 원래 메시지에 결국 닿긴 하지만(`getMessage()`가 아니라 `getCause().getCause()...`까지 내려가야), `catch (RuntimeException e)`가 애초에 `NoClassDefFoundError` 자체를 못 잡는다는 핵심 결함은 그대로다.
+
+**실측 — 수정 후.** 같은 형식 위반 이름을 넣은 채 새 `BotRegistry`(정적 블록 없음)·`ArenaApplication`(`run` 분리)으로 다시 컴파일해 돌렸다:
+```
+$ java -cp $CP arena.api.ArenaApplication gate Gen00Bot
+하네스 오류 — 봇의 잘못이 아니다: java.lang.IllegalStateException: 세대 봇 이름이 "Gen<숫자>Bot" 형식이 아니다: "Broken"
+java.lang.IllegalStateException: 세대 봇 이름이 "Gen<숫자>Bot" 형식이 아니다: "Broken"
+	at arena.bots.BotRegistry.validate(BotRegistry.java:104)
+	at arena.bots.BotRegistry.validateRegistration(BotRegistry.java:88)
+	at arena.api.ArenaApplication.run(ArenaApplication.java:83)
+	at arena.api.ArenaApplication.run(ArenaApplication.java:60)
+	at arena.api.ArenaApplication.main(ArenaApplication.java:51)
+EXIT CODE: 3
+```
+종료 코드 3, 메시지에 문제의 이름("Broken")이 그대로 담겨 있다. 실험이 끝난 뒤 `GENERATIONS`에 넣었던 임시 항목을 지우고 원본과 바이트 단위로 같음을 `diff`로 확인했다.
+
+**단위 테스트로 고정.** `arena-api/src/test/java/arena/api/ArenaApplicationTest.java`를 새로 만들었다 — `ArenaApplication.run(String[], Runnable)`에 실패하는 검사(`BotRegistry.validate(List.of(), List.of(evil))`, `evil.name() == "Evil|Bot"`)를 주입해 종료 코드 3과, `System.err`를 리다이렉트해 잡은 메시지에 "Evil|Bot"이 실제로 들어있는지 확인한다. 같은 검사를 한 JVM 안에서 세 번 반복해도 매번 3과 같은 메시지가 나오는지도 고정했다(정적 초기화였다면 두 번째부터 `NoClassDefFoundError`로 갈라졌을 지점 — 이제는 그럴 갈래 자체가 없다). 등록 검증이 진짜로(`BotRegistry::validateRegistration`) 통과하면 그 뒤 명령까지 정상 실행됨(없는 봇 이름이므로 2)도 같이 확인해, 주입 시야가 정상 경로를 막지 않았음을 보였다.
+
+**검증.** `./gradlew :arena-bots:test :arena-api:test` — `BotRegistryTest`(`validate`가 `public`으로 바뀐 것 외 동작 무변화) 10개 + `ArenaApplicationTest` 5개(신규) + `GateCommandTest`·`ChallengeCommandTest`·`RecordCommandTest` 기존 전부 GREEN. 전체 `./gradlew test` — 175 + 5(`ArenaApplicationTest`) = **180개, 전부 GREEN**. `records/`·`web/`은 유닛 테스트에서 이번에도 생성되지 않았다.
+
+---
+
 ## 다음 단계
 
 - [x] 스펙 문서 작성 및 자체 검토

@@ -28,15 +28,14 @@ import java.util.stream.Stream;
  * 거기 닿는 값은 항상 이 목록에 박힌 봇 자신의 {@code name()} 리터럴이다.
  *
  * 하지만 그 리터럴 자체가 안전하다는 보장은 어디에도 없었다 — 등록만
- * 하면 무엇이든 들어갔다. {@link #validate}가 클래스 초기화 시점에
- * 한 번, 등록된 모든 이름에 대해 세 규칙을 강제한다: ① 세대 이름은
- * {@code Gen\d+Bot} 형식이어야 한다(어기면 {@link #generationNumber}의
- * 파싱이 개별 봇이 아니라 {@link #allGenerations} 전체를, 그래서
- * {@code record}·{@code challenge} 명령 전체를 하네스 결함으로
- * 끌고 내려간다), ② 세대·베이스라인을 통틀어 이름이 겹치면 안 된다
- * (겹치면 {@link #byName}의 {@code findFirst()}가 세대 봇으로 베이스라인을
- * 조용히 가려버린다 — 예를 들어 어떤 세대 봇이 스스로를 "StraightBot"이라
- * 부르면 {@code --bot=StraightBot}은 그 순간부터 진짜 베이스라인이 아니라
+ * 하면 무엇이든 들어갔다. {@link #validate}가 등록된 모든 이름에 대해
+ * 세 규칙을 강제한다: ① 세대 이름은 {@code Gen\d+Bot} 형식이어야 한다
+ * (어기면 {@link #generationNumber}의 파싱이 개별 봇이 아니라
+ * {@link #allGenerations} 전체를 무너뜨린다), ② 세대·베이스라인을
+ * 통틀어 이름이 겹치면 안 된다(겹치면 {@link #byName}의
+ * {@code findFirst()}가 세대 봇으로 베이스라인을 조용히 가려버린다 —
+ * 예를 들어 어떤 세대 봇이 스스로를 "StraightBot"이라 부르면
+ * {@code --bot=StraightBot}은 그 순간부터 진짜 베이스라인이 아니라
  * 그 세대 봇을 가리키게 된다), ③ 이름에 {@code "|"}가 들어가면 안 된다
  * ({@link arena.core.ReplayHash}의 정규화 문자열이 {@code "|"}로 필드를
  * 가르므로, 그 문자가 이름에 섞이면 필드 경계가 흐려진다 — {@link
@@ -45,6 +44,21 @@ import java.util.stream.Stream;
  * 직접 {@code Match.play}에 넘기는 경로)와 G5 둘 다 이 위험에 노출된다).
  * 등록 시점에 막으면 "오늘 네 리터럴이 우연히 깨끗하다"가 아니라
  * "이 목록에 들어오는 모든 이름은 규칙을 지킨다"가 된다.
+ *
+ * 이 검증은 정적 초기화 블록에서 부르지 않는다. JLS 12.4.2에 따라
+ * 정적 초기화를 빠져나가는 예외는 무엇이든 {@link ExceptionInInitializerError}
+ * (Error의 하위 클래스)로 감싸이고, 같은 JVM에서 그 클래스를 다시
+ * 건드리면 이번엔 원래 메시지를 담지 않는 {@link NoClassDefFoundError}가
+ * 대신 나온다 — {@code arena-api}의 {@code ArenaApplication}이 판정
+ * 거부(1)와 하네스 오류(3)를 가르려고 {@code catch (RuntimeException e)}로
+ * 잡는데, 두 Error 서브클래스 다 RuntimeException이 아니라서 못 잡히고
+ * JVM 기본 종료 코드(1 — 하필 "판정에 의한 거부"와 같은 값)로 새 나간다.
+ * 그래서 {@link #validateRegistration()}을 평범한 정적 메서드로 열어
+ * {@code ArenaApplication}이 명령을 처리하기 전에 직접 부르게 했다 —
+ * 그러면 던지는 건 순수 {@link IllegalStateException}(RuntimeException)이라
+ * 기존 catch가 그대로 3으로 잡고, 이 매핑은 같은 JVM 안에서 몇 번을
+ * 다시 불러도 항상 똑같다(정적 초기화처럼 "첫 번째는 이렇고 두 번째부터는
+ * 다르다"는 게 없다).
  */
 public final class BotRegistry {
 
@@ -58,20 +72,28 @@ public final class BotRegistry {
     private static final List<Bot> BASELINES = List.of(
             new StraightBot(), new RandomBot(), new WallAvoidBot());
 
-    static {
-        validate(GENERATIONS, BASELINES);
-    }
-
     private BotRegistry() {}
 
     /**
-     * 등록 규칙 셋을 강제한다. 정적 초기화가 {@code GENERATIONS}·
-     * {@code BASELINES}로 부르지만, 패키지 전용으로 열어 둔 이유는
-     * 테스트가 규칙 하나씩을 임의의 목록으로 직접 찌를 수 있어야
-     * 하기 때문이다 — 실제 {@code GENERATIONS}는 항상 유효해서 정적
-     * 초기화 실패를 재현할 수 없다.
+     * 지금 등록된 {@code GENERATIONS}·{@code BASELINES}를 검증한다.
+     * {@code ArenaApplication}이 명령을 처리하기 전에 매번 부른다 —
+     * 정적 초기화가 아니라 평범한 메서드 호출이라, 실행할 때마다
+     * 독립적으로 검사하고 독립적으로 실패한다.
      */
-    static void validate(List<Bot> generations, List<Bot> baselines) {
+    public static void validateRegistration() {
+        validate(GENERATIONS, BASELINES);
+    }
+
+    /**
+     * 등록 규칙 셋을 강제한다. {@link #validateRegistration()}이
+     * {@code GENERATIONS}·{@code BASELINES}로 부른다. public인 이유는
+     * 임의의 목록으로 규칙 하나씩을 직접 찌르는 테스트뿐 아니라, 이
+     * 검증이 {@code ArenaApplication}의 종료 코드 매핑까지 실제로
+     * 흘러가는지를 다른 모듈(arena-api)의 테스트가 증명해야 하기
+     * 때문이다 — 실제 {@code GENERATIONS}는 항상 유효해서 그 흐름을
+     * 재현하려면 합성 목록을 이 메서드에 직접 넣을 길이 있어야 한다.
+     */
+    public static void validate(List<Bot> generations, List<Bot> baselines) {
         for (Bot g : generations) {
             if (!GENERATION_NAME.matcher(g.name()).matches()) {
                 throw new IllegalStateException(
