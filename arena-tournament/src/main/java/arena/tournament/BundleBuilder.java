@@ -178,14 +178,44 @@ public final class BundleBuilder {
     /**
      * 역대 전 세대 라운드로빈. 시드는 심사·홀드아웃과 별개로 고정된
      * {@link #ROUND_ROBIN_SEEDS}(1~10)를 쓴다.
+     *
+     * {@link RoundRobin#run}이 돌려주는 대각선의 {@link Double#NaN}을
+     * 여기서 JSON {@code null}로 바꿔 내보낸다({@link #toWireMatrix}) —
+     * 이 파일의 유일한 소비자가 자바스크립트 프론트엔드이기 때문이다.
+     * {@code records/}처럼 자바가 다시 읽는 파일이라면 Jackson 기본
+     * 동작(따옴표 붙은 {@code "NaN"} 문자열, 별도 설정 없이 double로
+     * 왕복)을 그대로 둬도 되지만({@link RecordStore}·{@link ChallengeReport}가
+     * 이미 그렇게 한다), 숫자 배열 안에 섞인 문자열 {@code "NaN"}은
+     * JS 쪽에서 {@code cell.toFixed(2)}를 던지게 하거나 {@code cell > 0.5}를
+     * 조용히 {@code false}로 만드는 타입 함정이다. {@code null}은 "빈 칸"의
+     * 의미를 갖는 JSON 1급 값이라 그런 함정이 없다.
      */
     private static Map<String, Object> buildRoundRobin(
             List<Bot> generations, int width, int height) {
 
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("bots", generations.stream().map(Bot::name).toList());
-        payload.put("matrix", RoundRobin.run(generations, ROUND_ROBIN_SEEDS, width, height));
+        payload.put("matrix", toWireMatrix(RoundRobin.run(generations, ROUND_ROBIN_SEEDS, width, height)));
         return payload;
+    }
+
+    /**
+     * {@code double[][]}을 박싱된 {@code Double[][]}로 바꾸며 {@link Double#NaN}
+     * 칸만 명시적으로 {@code null}로 치환한다. 박싱된 {@code Double}에 NaN
+     * 값 자체를 그대로 담아 직렬화해도 Jackson은 여전히 {@code "NaN"}
+     * 문자열을 적는다(원시 타입일 때와 동일한 특수 처리) — 그래서 값을
+     * {@code null} 참조로 바꾸는 것만이 유효한 우회다.
+     */
+    private static Double[][] toWireMatrix(double[][] matrix) {
+        Double[][] wire = new Double[matrix.length][];
+        for (int i = 0; i < matrix.length; i++) {
+            wire[i] = new Double[matrix[i].length];
+            for (int j = 0; j < matrix[i].length; j++) {
+                double v = matrix[i][j];
+                wire[i][j] = Double.isNaN(v) ? null : v;
+            }
+        }
+        return wire;
     }
 
     private static void writeJson(Path path, Object value) {

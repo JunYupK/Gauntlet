@@ -1346,6 +1346,36 @@ RecordStoreTest > 관문을_통과하면_이력에_PASSED로_남는다(Path) FAI
 
 ---
 
+### D59. Task 18 리뷰 반려 — 죽은 갤러리 시드 테스트, `BundleBuilder` 충돌 시나리오 무방비, roundrobin.json의 NaN을 null로 교체, D58 메커니즘 서술 정정
+
+**리뷰 결과.** `RoundRobin`·`BundleBuilder`의 예약 id 전환(브리프 초안의 `a.name()`/`bot.name()` 직접 사용을 걷어낸 것), 행렬 방향·대각선·자기대전 회피, 바이트 동일성 장치는 전부 독립적으로 재확인됐다며 승인 — 리뷰어가 `SeriesRunner.playOne`을 직접 확인해 "id0==id1일 때 좌석 교대 절반에서 `bot0Id`가 항상 같은 문자열로 찍힌다"는 D58의 핵심 주장을 실측으로 재검증했다. 반려는 증거 쪽 세 갈래 + 기록 정정 하나.
+
+**1) `갤러리의_모든_경기는_같은_시드를_쓴다`가 항상 통과하는 죽은 테스트였다.** `assertFalse(json.contains("\"seed\":2"))`는 이 MAPPER가 `INDENT_OUTPUT`을 켠 pretty printer라 필드 구분자가 `" : "`인 것과 충돌한다 — 실제 출력은 `"seed" : 1`처럼 콜론 양옆에 공백이 들어가므로 `"seed":2`라는 부분 문자열 자체가 애초에 나올 수 없다(`RecordStoreTest`의 통과하는 테스트들이 이미 공백 있는 형태를 보여준다). 세대마다 다른 시드를 썼어도(테스트 이름이 정확히 막으려던 상황) 이 어서션은 계속 통과했을 것이다.
+
+**조치.** 부분 문자열 매칭을 버리고 실제 `seed` 값을 확인하는 것으로 바꿨다. `Replay[]`로 완전히 역직렬화하려 했더니 `MatchResult.isDraw()`가 자바빈 getter 관례(`isXxx()`)를 따르는 탓에 Jackson이 직렬화할 때 레코드에 없는 파생 필드 `"draw"`를 추가로 써 넣고, 그 결과 `Replay[]`로 완전히 되읽으면 `UnrecognizedPropertyException`이 났다(실측 확인, 이 태스크의 범위 밖인 기존 quirk라 `MatchResult` 자체는 건드리지 않았다) — 그래서 `JsonNode`로 `seed`만 뽑는 방식으로 바꿨다. 겸사겸사 `gallery.size() == generations.size()`도 같이 고정했다(원래 이 검증이 어디에도 없어서 갤러리가 1개짜리든 6개짜리든 통과하던 공백을 메운다).
+
+**2) `RoundRobin`은 이름 충돌 회귀 테스트로 무장했지만 `BundleBuilder.buildStats`는 무방비였다.** `이름이_같은_두_봇이_섞여도_행렬이_왜곡되지_않는다`(RoundRobin)는 비대칭 강도(WallAvoidBot vs Gen00Bot)에 `> 0.8` 어서션을 걸어 회귀에 민감하지만, `챔피언과_이름이_같은_세대도_지표가_유효_범위_안에_있다`(BundleBuilder)는 `occupancy`·`suicideRate`·`scoreRate`가 `[0,1]` 범위 안인지만 본다 — 오귀속이 나도 여전히 비율이고 여전히 범위 안이라(scoreRate는 좌석 0 승률 근사인 0.5 근처로 무너질 뿐) 이 테스트는 버그가 있어도 통과한다.
+
+**조치.** `RoundRobin`이 쓰는 것과 같은 비대칭 강도 트릭을 `BundleBuilder`에도 적용했다: `generations = [new WallAvoidBot()]`(실제 강한 봇) 하나에, 이름은 "WallAvoidBot"이라고 보고하지만 실제로는 `Gen00Bot`(약함)에게 위임하는 챔피언을 붙여 `세대와_챔피언의_이름이_같아도_scoreRate가_뭉개지지_않는다`로 `scoreRate() > 0.8`을 고정했다. 실제로 물리는지 `BundleBuilder.buildStats`를 브리프 초안(`bot.name()`/`champion.name()`을 SeriesRunner id로 직접 넘기고 `r.bot0Id().equals(bot.name())`으로 좌석 판정)으로 일시적으로 되돌려 이 테스트만 돌렸더니:
+```
+BundleBuilderTest > 세대와_챔피언의_이름이_같아도_scoreRate가_뭉개지지_않는다(Path) FAILED
+    org.opentest4j.AssertionFailedError: 이름이 같다는 이유로 WallAvoidBot의 scoreRate가
+    뭉개졌다: 0.5 ==> expected: <true> but was: <false>
+```
+`scoreRate`가 정확히 `0.5`로 무너져 실패했다 — 좌석 0 오귀속이 승률을 동전 던지기 값으로 뭉갠다는 예측과 정확히 일치한다. 확인 후 원래 구현으로 즉시 복원했고, `git diff`로 `buildStats` 본문이 리뷰 이전 코드와 완전히 같음을 확인했다(변경분은 `buildRoundRobin`/`toWireMatrix`뿐).
+
+**3) roundrobin.json의 대각선을 인용된 `"NaN"` 문자열이 아니라 JSON `null`로 내보내야 한다.** D58까지 따른 "Jackson 기본 NaN 처리"는 `records/`(자바가 다시 읽는 내부 기록)에는 맞지만, `roundrobin.json`은 자바스크립트 프론트엔드가 소비하는 파일이다. 숫자 배열 안에 섞인 문자열 `"NaN"`은 `cell.toFixed(2)`를 던지게 하고 `cell > 0.5`를 조용히 `false`로 만드는 타입 함정이다 — 히트맵 전용 파일에서 가장 나쁜 자리에서 터진다.
+
+**조치.** `RoundRobin.run`의 Java API는 그대로 `Double.NaN`을 대각선에 둔다 — 값 자체의 의미(자기 자신과의 대전 없음)는 바뀌지 않는다. `BundleBuilder`가 JSON으로 내보낼 때만 `toWireMatrix`로 `double[][]`을 `Double[][]`(박싱)로 바꾸며 `Double.isNaN(v) ? null : v`로 대각선을 명시적 `null`로 치환한다 — 박싱된 `Double`에 NaN 값 자체를 담아도 Jackson은 여전히 `"NaN"` 문자열을 적으므로, 참조를 `null`로 바꾸는 것만이 유효한 우회다. `records/`에 쓰는 `ChallengeReport.holdoutScoreRate` 등은 손대지 않았다 — 그쪽은 자바가 다시 읽어야 하고, 인용된 `"NaN"`이 별도 설정 없이 정확히 왕복한다는 게 D56/RecordStoreTest로 이미 증명돼 있다. `RoundRobin.run`의 javadoc에 이 wire 변환("Java API는 NaN, `BundleBuilder`가 만드는 JSON은 null, 두 파일의 소비자가 다르므로 wire 표현도 다르다")을 명시했다. `라운드로빈_JSON의_대각선은_null이고_비대각선은_숫자다` 테스트가 `roundrobin.json`에 `"NaN"` 문자열이 전혀 없음과, `JsonNode`로 파싱했을 때 대각선은 `isNull()`, 비대각선은 `isNumber()`임을 확인한다 — 이 테스트가 리뷰 이전의 "NaN이 왕복된다" 테스트를 대체한다. NaN 왕복은 더 이상 이 파일의 계약이 아니다.
+
+**4) D58의 메커니즘 서술이 틀렸다 — 정정.** D58은 버그를 "subjectId가 bot0Id와도 bot1Id와도 일치하지 않으면 조용히 좌석 0으로 귀속된다"고 적었는데, 이건 고쳐지기 전 코드의 동작이 아니라 **오늘의 `seatOf`가 예외를 던지는 경우**(subjectId가 어느 쪽과도 일치하지 않을 때)를 묘사한 것이다. 실제 메커니즘은 정반대다: id0==id1로 만들면 subjectId가 bot0Id와 bot1Id **둘 다와 일치**하고, `seatOf`가 bot0Id를 먼저 검사해 실제 좌석이 1이었어도 항상 0을 반환한다. `RoundRobin.java`의 javadoc(리뷰 전 버전 22~27행)은 이미 이렇게 정확히 적혀 있었고 D58 본문만 틀렸다. CLAUDE.md §2("뒤집힌 판단은 지우지 말고 다시 쓴다")에 따라 D58 본문은 그대로 두고 이 항목으로 정정한다.
+
+**손대지 않은 것(리뷰가 원장에 미루라고 지시한 항목).** 번들 테스트가 항상 빈 `RecordStore`로 돌아 `attempts`·`loop-history` 내용물이 실제로는 검증되지 않는 것, 빈 `judgingSeeds`가 조용히 `NaN` 평균을 내는 것, 갤러리 원소에 세대 인덱스가 없어 프론트엔드가 위치로만 join해야 하는 것, `RoundRobinTest`가 메서드마다 전체 행렬을 다시 계산하는 것.
+
+**검증.** `./gradlew :arena-tournament:test --tests '*BundleBuilderTest*' --tests '*RoundRobinTest*'` 13개 전부 GREEN(기존 12 + 신규 1: 이름 충돌 `buildStats` 회귀 테스트, "NaN 왕복" 테스트는 "null/숫자" 테스트로 교체). 전체 `./gradlew test` 156개(기존 155 + 신규 1) 전부 GREEN. `records/`·`web/`은 이번에도 생성되지 않았다.
+
+---
+
 ## 다음 단계
 
 - [x] 스펙 문서 작성 및 자체 검토

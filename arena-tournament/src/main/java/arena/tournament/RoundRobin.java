@@ -40,6 +40,18 @@ public final class RoundRobin {
      * {@link Double#NaN}으로 둔다. i와 j를 바꾼 두 칸은 승점 승률의
      * 정의상 항상 합이 1이다({@code [i][j] + [j][i] == 1.0}) — 무승부는
      * 양쪽 다 0.5점씩 가져가므로 합이 그대로 보존된다.
+     *
+     * <p>이 Java API 값 자체는 항상 {@code Double.NaN}이다. 하지만 이
+     * 행렬을 {@code roundrobin.json}으로 내보내는 {@link BundleBuilder}는
+     * 대각선을 JSON {@code null}로 바꿔서 쓴다 — 자바스크립트 프론트엔드가
+     * 숫자 배열 안에서 따옴표 붙은 {@code "NaN"} 문자열을 만나면
+     * {@code cell.toFixed()}가 던지거나 {@code cell > x} 비교가 조용히
+     * {@code false}가 되는 타입 함정에 빠지기 때문이다. 자세한 내용은
+     * {@link BundleBuilder#buildRoundRobin}·{@link BundleBuilder#toWireMatrix}
+     * 참고. {@code records/}처럼 자바가 다시 읽는 파일(예:
+     * {@code ChallengeReport.holdoutScoreRate})은 이 변환을 거치지 않고
+     * Jackson 기본 동작(따옴표 붙은 {@code "NaN"}, 별도 설정 없이 왕복)을
+     * 그대로 쓴다 — 두 파일의 소비자가 다르므로 wire 표현도 다르다.
      */
     public static double[][] run(List<Bot> bots, List<Long> seeds, int width, int height) {
         int n = bots.size();
