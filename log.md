@@ -1318,6 +1318,34 @@ RecordStoreTest > 관문을_통과하면_이력에_PASSED로_남는다(Path) FAI
 
 ---
 
+### D58. Task 18 — 라운드로빈과 발표 번들: 브리프 예시 코드의 좌석 귀속 버그를 실제로 밟았다
+
+**결정.** `RoundRobin.run`과 `BundleBuilder.buildStats` 둘 다 `bot.name()`을 SeriesRunner/Standing의 좌석 id로 쓰지 않는다. 각각 서로 다른 게 보장된 내부 예약 id 쌍(`__roundrobin_a__`/`__roundrobin_b__`, `__generation__`/`__champion__`)을 쓰고, 실제 좌석은 항상 `Standing.seatOf`로 판정한다. `Championship`(D54)이 이미 세운 패턴을 그대로 따랐다.
+
+**왜 이게 브리프의 "최소 구현" 예시 코드를 그대로 옮기지 않은 지점인가.** 태스크 브리프 Step 3이 준 `RoundRobin`·`BundleBuilder` 초안은 각각 `a.name()`/`b.name()`, `bot.name()`/`champion.name()`을 SeriesRunner id로 그대로 넘기고, `BundleBuilder`는 좌석 판정도 `r.bot0Id().equals(bot.name()) ? 0 : 1`로 직접 문자열을 비교한다 — 이건 Task 16(D54, D55)이 이미 잡아냈던 바로 그 안티패턴이다. `Standing.seatOf`가 `bot0Id`를 먼저 검사하는 탓에, subjectId가 bot0Id와도 bot1Id와도 정확히 일치하지 않으면(둘 다 같은 문자열이라 사실상 항상 일치) 어느 쪽이 진짜 그 자리에 앉았는지와 무관하게 조용히 좌석 0으로 귀속된다. 좌석 교대 경기(전체의 절반)에서는 이게 통계를 통째로 뒤집는다.
+
+그리고 이 버그는 가상의 걱정이 아니라 이 태스크 자신의 테스트 픽스처에서 실제로 발동한다: `BundleBuilderTest`의 픽스처는 `generations = [Gen00Bot, RandomBot, WallAvoidBot]`이고 `finalChampion = new WallAvoidBot()`(별도 인스턴스, 같은 이름) — 즉 마지막 세대와 최종 챔피언의 이름이 정확히 같다. 브리프 초안 코드로 이 픽스처를 돌리면, `WallAvoidBot` 세대의 좌석 교대 경기 10판(전체 20판의 절반)에서 `r.bot0Id()`가 항상 "WallAvoidBot"이 되어(id0==id1이므로 SeriesRunner의 스왑이 실제로 자리를 바꿔도 문자열은 똑같다) `mySeat`이 항상 0으로 잘못 판정된다 — occupancy·suicideRate 계산에 실제로는 자신이 앉지 않은 좌석의 배열 인덱스를 쓰게 된다.
+
+**참여자 식별과 이름 충돌.** `RoundRobin.run(List<Bot>, ...)`이 짝짓는 두 봇의 이름이 같아도(우연이든, 이름이 겹치는 두 세대를 실수로 같이 넣었든) 행렬이 왜곡되지 않아야 한다는 요구를 `이름이_같은_두_봇이_섞여도_행렬이_왜곡되지_않는다` 테스트로 고정했다 — 강한 쪽(WallAvoidBot 위임)과 약한 쪽(Gen00Bot 위임)에 똑같이 "Dup"이라는 이름을 준 래퍼 두 개를 붙여서, 승률이 뭉개지지 않고 실제로 강한 쪽이 이긴 걸로 정확히 기록되는지까지 확인한다(`assertDoesNotThrow`만으로는 조용한 증거 반전을 못 잡는다 — D55와 같은 이유).
+
+**행렬 방향과 대각선.** `[i][j]`는 `bots.get(i)`가 `bots.get(j)` 상대로 낸 승점 승률로 못박고 javadoc에 명시했다. `벽회피봇이_직진봇을_압도한다`(`m[2][0] > 0.8`) 테스트는 방향을 검증하는 역할도 겸한다 — 행과 열이 뒤집힌 구현(`matrix[j][i] = rateA` 식)이었다면 `m[2][0]`은 반대로 0.2 밑으로 나와 이 테스트가 잡아냈을 것이다. `마주보는_칸의_승률은_합이_1이다`은 `[i][j]+[j][i]==1.0`을 모든 쌍에 대해 검증하고, 대각선은 `Arrays.fill(row, NaN)`으로 미리 채운 뒤 자기 자신과는 절대 대전시키지 않는(`j = i+1`부터 시작) 루프 구조로 항상 NaN을 유지한다.
+
+**바이트 동일성.** `BundleBuilder`도 `RecordStore`(D57)와 같은 장치를 쓴다 — `DefaultPrettyPrinter`의 객체·배열 인덴터 양쪽에 리터럴 `"\n"`을 박아 개행을 OS에 맡기지 않는다. `같은_입력은_두_번_만들어도_바이트_단위로_동일한_번들을_낸다` 테스트가 네 파일(gallery/generations/loop-history/roundrobin) 전부를 서로 다른 두 출력 디렉터리에 두 번 만들어 바이트 배열을 직접 비교한다.
+
+**NaN 왕복.** `roundrobin.json`의 대각선은 Jackson 기본 동작대로 `"NaN"` 문자열로 직렬화된다(RecordStore의 `holdoutScoreRate`와 같은 처리, D56). `라운드로빈_대각선의_NaN이_왕복된다` 테스트는 이걸 가정하지 않고 실제로 plain `ObjectMapper`로 `record RoundRobinBundle(List<String> bots, double[][] matrix)`에 역직렬화해 `Double.isNaN`을 확인한다.
+
+**라운드로빈 시드를 브리프 초안과 다르게 처리했다.** 브리프 Step 3 초안은 `roundrobin.json`의 시드를 `judgingSeeds.subList(0, Math.min(10, judgingSeeds.size()))`로 만든다 — 호출자가 넘기는 `judgingSeeds`가 마침 1부터 시작하는 오름차순일 때만 전역 제약("라운드로빈 시드 = 1‥10")과 우연히 일치하는 취약한 파생이다. 대신 `BundleBuilder`에 `ROUND_ROBIN_SEEDS = 1..10`을 상수로 못박았다 — 심사 시드 목록의 크기·정렬 순서가 바뀌어도 라운드로빈 시드는 전역 제약값 그대로 고정된다.
+
+**기각한 대안**
+| 대안 | 기각 사유 |
+|---|---|
+| 브리프 Step 3 초안을 그대로 구현 | 위에서 실측했듯 이 태스크 자신의 픽스처(마지막 세대=최종 챔피언과 이름 동일)에서 곧바로 좌석 오귀속이 발동한다 |
+| `attempts` 필드를 브리프처럼 `Math.max(1, nextAttempt(gen)-1)`로 하한 고정 | Gen 0처럼 루프를 한 번도 거치지 않은 세대까지 "시도 1회"로 보고하게 되어 실제와 다른 값을 낸다. `nextAttempt(gen)-1`은 항상 0 이상이라 별도 하한이 필요 없다 |
+
+**검증.** RED: `./gradlew :arena-tournament:test --tests '*RoundRobinTest*' --tests '*BundleBuilderTest*'` — 컴파일 실패(`RoundRobin`/`BundleBuilder`/`GenerationStat` 없음). GREEN: 같은 명령 12개 전부 PASS. 전체 `./gradlew test` 155개(기존 143 + 신규 12) 전부 GREEN, `records/`·`web/`은 이번에도 생성되지 않았다.
+
+---
+
 ## 다음 단계
 
 - [x] 스펙 문서 작성 및 자체 검토
