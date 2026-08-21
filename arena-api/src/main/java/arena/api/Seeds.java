@@ -19,6 +19,15 @@ public final class Seeds {
 
     public static final List<Long> JUDGING = range(1, 50);
     public static final List<Long> HOLDOUT = range(1001, 1050);
+
+    /**
+     * {@link arena.tournament.BundleBuilder#build}에 그대로 전달되어
+     * {@code roundrobin.json}을 만드는 값이다 — {@code BundleBuilder}는
+     * 이 값을 자체 상수로 다시 적지 않는다(의존이 단방향이라
+     * {@code arena-tournament}가 {@code arena-api}를 참조할 수 없으므로,
+     * 그 클래스는 호출자가 넘겨주는 값을 그대로 쓸 뿐이다). {@link
+     * arena.api.cli.RecordCommand#buildInto}가 그 호출자다.
+     */
     public static final List<Long> ROUND_ROBIN = range(1, 10);
 
     /** 갤러리는 전 세대가 같은 시드를 써야 패널끼리 비교된다. */

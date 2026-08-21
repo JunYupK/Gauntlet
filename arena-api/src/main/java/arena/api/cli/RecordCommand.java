@@ -23,15 +23,22 @@ import java.util.List;
  * 결정론이 지켜지고 있다면 두 번 만든 번들은 바이트 단위로 같다.
  * 발표에서 R1을 주장할 때 이 명령의 출력이 곧 증거다.
  *
- * verify는 두 겹으로 재검증한다: ① gallery.json을 실제로 역직렬화해
- * ({@code List<Replay>}, JsonNode로 얼버무리지 않는다) 각 리플레이의
- * 필드로부터 {@link ReplayHash#of}를 다시 계산해 저장된 hash와 대조하고,
- * ② 새로 지은 번들 전체를 기존 번들과 바이트 단위로 비교한다. ①이
- * "저장된 해시가 그 리플레이의 필드로부터 실제로 재현되는가"를,
- * ②가 "빌드 전체가 결정론적인가"를 각각 잡는다 — 어느 한쪽만으로는
- * 부족하다: ①만 하면 roundrobin.json 같은 리플레이가 없는 파일의
- * 드리프트를 놓치고, ②만 하면 "두 번 다 우연히 같은 방식으로 틀렸다"는
- * 경우(예: 항상 같은 잘못된 해시를 쓰는 버그)를 못 잡는다.
+ * verify는 서로 다른 것을 잡는 두 겹으로 이뤄진다.
+ *
+ * ① {@link #verifyReplayHashes}가 **저장돼 있는 그대로의** {@code
+ * outputDir/gallery.json}을 실제로 역직렬화해({@code List<Replay>},
+ * JsonNode로 얼버무리지 않는다) 각 리플레이의 필드로부터 {@link
+ * ReplayHash#of}를 다시 계산해 저장된 hash와 대조한다 — "저장된 해시가
+ * 그 리플레이의 필드로부터 실제로 재현되는가"를 잡는다. 새로 지은
+ * 번들이 아니라 저장된 번들 자체를 읽는 게 핵심이다: 방금 지은
+ * 번들은 같은 코드가 방금 계산한 해시를 그대로 담고 있어 항상
+ * 자기 자신과 일치하므로, 그걸 읽으면 "저장된 기록이 실제로 재현
+ * 가능한가"라는 질문에 답하지 못한다.
+ *
+ * ② 새로 지은 번들 전체를 기존 번들과 바이트 단위로 비교한다 —
+ * "빌드 전체가 결정론적인가"를 잡는다. ①만으로는 부족하다:
+ * roundrobin.json처럼 리플레이가 없는 파일의 드리프트나, {@code
+ * matchId}처럼 해시 계산에 안 쓰이는 필드의 드리프트를 놓친다.
  *
  * {@code MatchResult.isDraw()}가 만드는 파생 필드 "draw" 때문에
  * gallery.json을 {@code List<Replay>}로 완전히 역직렬화하면
@@ -57,16 +64,16 @@ public final class RecordCommand {
             return 0;
         }
 
+        String hashMismatch = verifyReplayHashes(outputDir);
+        if (hashMismatch != null) {
+            System.out.println("재현 검증 실패 — R1이 깨졌다");
+            System.out.println("  " + hashMismatch);
+            return 1;
+        }
+
         Path scratch = outputDir.resolveSibling(outputDir.getFileName() + "-verify");
         try {
             buildInto(recordsDir, scratch);
-
-            String hashMismatch = verifyReplayHashes(scratch);
-            if (hashMismatch != null) {
-                System.out.println("재현 검증 실패 — R1이 깨졌다");
-                System.out.println("  " + hashMismatch);
-                return 1;
-            }
 
             String before = digestOf(outputDir);
             String after = digestOf(scratch);
@@ -91,6 +98,7 @@ public final class RecordCommand {
                 BotRegistry.latestGeneration(),
                 Seeds.GALLERY,
                 Seeds.JUDGING,
+                Seeds.ROUND_ROBIN,
                 Seeds.WIDTH, Seeds.HEIGHT,
                 new RecordStore(recordsDir),
                 outputDir);

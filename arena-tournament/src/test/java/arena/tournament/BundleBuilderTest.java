@@ -24,7 +24,7 @@ class BundleBuilderTest {
 
     private void build(Path out, Path records) {
         List<Bot> generations = List.of(new Gen00Bot(), new RandomBot(), new WallAvoidBot());
-        BundleBuilder.build(generations, new WallAvoidBot(), 1L, SEEDS, 30, 30,
+        BundleBuilder.build(generations, new WallAvoidBot(), 1L, SEEDS, SEEDS, 30, 30,
                 new RecordStore(records), out);
     }
 
@@ -147,7 +147,7 @@ class BundleBuilderTest {
         List<Bot> generations = List.of(new WallAvoidBot());
         Bot champion = new NamedBot("WallAvoidBot", new Gen00Bot());
 
-        BundleBuilder.build(generations, champion, 1L, SEEDS, 30, 30,
+        BundleBuilder.build(generations, champion, 1L, SEEDS, SEEDS, 30, 30,
                 new RecordStore(tmp.resolve("records")), out);
 
         ObjectMapper mapper = new ObjectMapper();
@@ -212,6 +212,24 @@ class BundleBuilderTest {
                 }
             }
         }
+    }
+
+    // --- roundRobinSeeds는 필수다: 빈 시드로 조용히 빈 행렬을 내보내지 않는다 ---
+
+    @Test
+    void roundRobinSeeds가_null이면_거부한다(@TempDir Path tmp) {
+        List<Bot> generations = List.of(new Gen00Bot());
+        assertThrows(IllegalArgumentException.class, () ->
+                BundleBuilder.build(generations, new Gen00Bot(), 1L, SEEDS, null, 30, 30,
+                        new RecordStore(tmp.resolve("records")), tmp.resolve("data")));
+    }
+
+    @Test
+    void roundRobinSeeds가_비어있으면_거부한다(@TempDir Path tmp) {
+        List<Bot> generations = List.of(new Gen00Bot());
+        assertThrows(IllegalArgumentException.class, () ->
+                BundleBuilder.build(generations, new Gen00Bot(), 1L, SEEDS, List.of(), 30, 30,
+                        new RecordStore(tmp.resolve("records")), tmp.resolve("data")));
     }
 
     /** 이름을 생성자로 지정할 수 있는 래퍼. 이름 충돌 시나리오 전용. */

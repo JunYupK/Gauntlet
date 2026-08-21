@@ -12,3 +12,5 @@ build/
 records/
 web/node_modules/
 web/.next/
+web/public/data/
+web/public/data-verify/

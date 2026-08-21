@@ -1404,6 +1404,50 @@ verify는_두_번_돌려_해시가_같으면_0을_반환한다(Path) FAILED
 
 ---
 
+### D61. Task 19 리뷰 반려 반영 — `Seeds.ROUND_ROBIN` 죽은 상수, 검증되지 않은 exit code, `BotRegistry` 등록 무검증, `.gitignore`
+
+**리뷰 결과.** "draw" 파생 필드 처방(레코드가 아닌 arena-core도 안 건드리고 `FAIL_ON_UNKNOWN_PROPERTIES`도 안 낮춘 것), CLI `--bot=` 문자열의 봉쇄(정확 일치 화이트리스트), Spring이 `arena-api`에만 있는 것, 상수 재기술 없음(`GateCommand`가 `GateRunner.run(ctx)`를 직접 부르고 `ChallengeCommand`가 `report.threshold()`를 그대로 찍는 것), `try/finally` scratch 정리, `generationNumber` 정렬 개선은 전부 리뷰어가 직접 재확인해 승인했다. 반려는 네 갈래.
+
+**1) `Seeds.ROUND_ROBIN`이 죽은 상수였다.** 아무도 읽지 않았고, 실제로 도는 값은 `BundleBuilder.ROUND_ROBIN_SEEDS`였다 — 같은 전역 제약값(1~10)이 두 곳에 독립된 리터럴로 존재하면서, "단일 출처"라고 못박은 쪽이 정작 아무 데도 안 쓰이는 쪽이었다.
+
+**조치.** `BundleBuilder.build`에 `roundRobinSeeds` 매개변수를 추가하고 `BundleBuilder.ROUND_ROBIN_SEEDS`를 지웠다. `RecordCommand.buildInto`가 `Seeds.ROUND_ROBIN`을 그대로 넘긴다 — 이게 브리프가 못박은 "`Seeds`가 단일 출처"와 "의존은 단방향"(arena-tournament는 arena-api를 모른다) 두 요구가 부딪히는 지점인데, 후자(드리프트 방지)가 이긴다: Task 21이 이 상수들을 스펙과 대조하므로 두 리터럴로 갈라지면 반드시 걸린다. `build`는 `roundRobinSeeds`가 null이거나 비어 있으면 `IllegalArgumentException`을 던진다 — 라운드로빈은 마지막에 한 번만 도는 기록용이라, 빈 시드로 조용히 빈 행렬을 내보내면 "원래 비어 있었다"와 "호출자가 빠뜨렸다"를 구분할 수 없다. `Seeds.java`·`BundleBuilder.java`의 javadoc을 실제 흐름에 맞게 고쳤다.
+
+**2) 종료 코드와 verify 실패 분기가 수동 실행으로만 검증돼 있었다.** `RecordCommandTest`는 성공 verify 하나뿐이었고, `GateCommandTest`·`ChallengeCommandTest`가 아예 없었다 — 코드 1·2·3과 `challenger == champion` 가드가 전부 자동화된 증거 없이 서 있었다.
+
+**조치.** `GateCommandTest`(`run("NoSuchBot") == 2`)·`ChallengeCommandTest`(`run("Gen00Bot") == 2`, 지금 유일한 세대라 가드가 경기 없이 바로 걸린다)를 신설했다. `RecordCommandTest`에 두 개를 추가했는데, 그 전에 `RecordCommand.verifyReplayHashes`가 읽는 대상을 새로 지은 scratch 번들에서 **저장된 그대로의 `outputDir`**로 바꿨다 — 원래 설계(scratch를 읽음)로는 해시 재계산 층이 항상 자기 자신이 방금 계산한 값과 비교하는 동어반복이라(scratch는 매번 새로 만들어지고 즉시 지워지므로 외부에서 조작할 틈이 없다), "저장된 기록이 재현 가능한가"라는 원래 질문에 답하지 못했다. 저장된 `outputDir`를 읽도록 바꾸자 실제로 파일을 건드려 두 층을 독립적으로 실패시킬 수 있게 됐다: `matchId`(해시 계산에 안 쓰이는 필드)만 바꾸면 재계산 층은 통과하고 바이트 대조 층에서만 걸리고, `hash` 필드 자체를 조작하면 재계산 층에서 새 번들을 짓지도 않고 곧바로 걸린다.
+
+**RED 실측 (두 층이 실제로 다른 메커니즘인지).** 바이트 대조 층(②)을 임시로 비활성화하고 돌렸더니:
+```
+RecordCommandTest > gallery_json의_matchId를_바꾸면_verify가_1을_반환한다(Path) FAILED
+    org.opentest4j.AssertionFailedError
+RecordCommandTest > gallery_json의_hash를_조작하면_verify가_1을_반환한다(Path) PASSED
+```
+`matchId` 테스트만 실패했다 — ②가 없으면 안 걸리고, ①(해시 재계산)만으로는 `hash` 조작을 여전히 잡는다는 예측과 정확히 일치한다. 원복 후 4개 전부 GREEN. `GateCommandTest`·`ChallengeCommandTest`도 각각의 가드(try/catch, `challenger==champion` 분기)를 지우고 실행해 RED(`IllegalArgumentException`이 새거나, 도전자==챔피언인데도 실제로 100경기를 돌려버림)를 실측한 뒤 원복했다.
+
+**3) `BotRegistry`가 등록되는 이름을 전혀 검증하지 않았다.** `all()`이 세대 다음에 베이스라인을 이어붙이고 `byName`이 `findFirst()`를 쓰므로, 세대 봇이 베이스라인과 이름이 같으면 조용히 베이스라인을 가린다. `generationNumber`의 `Integer.parseInt`는 형식이 안 맞는 세대 이름 하나 때문에 `allGenerations()` 전체가, 그래서 `record`·`challenge` 명령 전체가 하네스 결함(개별 봇 반려가 아니라)으로 죽는다. 그리고 등록되는 이름에 `"|"`가 섞여도 막을 게 없었다 — 오늘의 네 리터럴이 깨끗한 건 규칙이 아니라 우연이었다.
+
+**놓친 경로 하나 정정.** task-19-report.md와 이전 D60 서술은 `ReplayHash`에 `bot.name()`이 닿는 경로로 G5(`DeterminismGate.checkReplayHash`)만 짚었는데, 리뷰어가 `BundleBuilder.buildGallery`도 `bot.name()`/`champion.name()`을 그대로 `Match.play`에 넘긴다는 걸 지적했다 — 갤러리는 좌석 귀속을 계산하지 않아도 되니 이름을 그대로 써도 안전하다는 서술(BundleBuilder.java의 buildGallery javadoc)은 "좌석 판정이 왜곡되지 않는다"는 뜻이었지 "ReplayHash 정규화 문자열이 안전하다"는 뜻이 아니었는데, 그 구분이 리포트에 명시돼 있지 않았다. 결론(닿을 수 없다)은 안 바뀌지만, 이제 등록 검증(아래)이 이 경로도 함께 막는다.
+
+**조치.** `BotRegistry`에 클래스 초기화 시점(`static { validate(GENERATIONS, BASELINES); }`) 검증 세 가지를 추가했다: ① 세대 이름은 `Gen\d+Bot` 정규식과 정확히 일치해야 한다, ② 세대·베이스라인을 통틀어 이름이 중복되면 안 된다, ③ 이름에 `"|"`가 들어가면 안 된다. `validate`를 패키지 전용으로 열어서 — 실제 `GENERATIONS`는 항상 유효해 정적 초기화 실패를 재현할 수 없으므로 — 테스트가 임의의 목록으로 규칙 하나씩을 직접 찌른다. 정렬(`sortByGeneration`)·최신 세대 선택(`highestGeneration`)도 같은 이유로 패키지 전용 메서드로 분리해, 등록된 세대가 하나뿐인 지금도 순서 역전·"마지막 원소" 우연 일치를 실제 회귀 테스트로 고정할 수 있게 했다.
+
+**리뷰가 지적한 두 동어반복도 같이 고쳤다.** `세대_봇은_번호_오름차순으로_나온다`는 등록된 세대가 하나뿐이라 순서 검증 루프가 한 번도 안 돈다 — 게다가 비교 기준이 `name().compareTo(...)`(문자열)라 Gen100Bot이 생기면 "정확한" 구현을 오히려 실패시켰을 것이다. `최신_세대는_목록의_마지막이다`는 `latestGeneration()`의 정의 그 자체(`allGenerations().get(size-1)`)와 비교하는 동어반복이었다. 둘 다 `sortByGeneration`/`highestGeneration`을 합성 데이터(중간에 최댓값을 두고, 문자열 정렬이면 뒤바뀌는 두 자리 이상 이름)로 직접 찌르는 테스트로 바꿨다.
+
+**RED 실측 (등록 검증 세 규칙, 정렬, 최신 세대 선택).** 각 규칙 블록·정렬 기준을 하나씩 원복 전 상태로 되돌려 개별 실행:
+- 세대 이름 형식 규칙 제거 → `세대_이름이_GenNNBot_형식이_아니면_등록을_거부한다` FAILED
+- 이름 중복 규칙 제거 → `세대와_베이스라인의_이름이_겹치면_등록을_거부한다` FAILED
+- 파이프 문자 규칙 제거 → `이름에_파이프가_있으면_등록을_거부한다` FAILED
+- `Comparator.comparingInt(generationNumber)`를 `Comparator.comparing(Bot::name)`으로 되돌림 → `세대_정렬은_문자열이_아니라_숫자_순서를_따른다`·`최신_세대는_등록_순서와_무관하게_숫자가_가장_큰_세대다` 둘 다 FAILED
+
+각 확인 후 즉시 원복, 전부 GREEN으로 복귀.
+
+**4) `.gitignore`가 `web/public/data/`를 덮지 않았다.** D60이 남긴 메모대로, 이 태스크가 그 쓰기 경로를 처음 만드는 diff이니 무시 규칙도 여기서 넣는다. `web/public/data/`와 `web/public/data-verify/`(verify가 만드는 scratch 디렉터리 — JVM이 중간에 죽으면 `finally`의 `deleteRecursively`가 못 돌아 남을 수 있다)를 `.gitignore`에 추가했다.
+
+**보류(리뷰가 원장에 미루라고 지시한 항목).** `digestOf`의 파일명 플랫폼 기본 문자셋, 번들이 아직 없을 때 `record --verify`가 하네스 결함으로 보고되는 것, gate 증거의 조용한 소스 읽기 플레이스홀더, `-Pbot` 없이 `./gradlew gate`를 돌렸을 때 사용법 메시지에 닿지 못하는 것, 중복된 `testImplementation` 줄과 두 번 박힌 Jackson 버전, `IS_GETTER=NONE` javadoc의 향후 주의사항 누락.
+
+**검증.** RED 시퀀스는 위 각 항목에 기술. `./gradlew test` 전부 GREEN — 신규 12개(`BundleBuilder` null/빈 라운드로빈 시드 거부 2, `GateCommandTest` 1, `ChallengeCommandTest` 1, `RecordCommandTest` verify 실패 2, `BotRegistryTest` 등록 검증·정렬·최신세대 6) + 기존 163 = 175개. `records/`·`web/`은 유닛 테스트에서 이번에도 생성되지 않았다.
+
+---
+
 ## 다음 단계
 
 - [x] 스펙 문서 작성 및 자체 검토

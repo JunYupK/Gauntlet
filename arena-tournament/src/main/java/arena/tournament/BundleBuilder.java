@@ -22,7 +22,6 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.stream.LongStream;
 
 /**
  * 화면이 읽을 정적 JSON을 만든다.
@@ -57,14 +56,6 @@ public final class BundleBuilder {
             .setVisibility(PropertyAccessor.IS_GETTER, Visibility.NONE);
 
     /**
-     * 라운드로빈 시드(전역 제약: 1~10). 심사·홀드아웃 시드와는 별개로
-     * 고정된 값이다 — 마지막에 한 번만 돌리는 기록용 히트맵이지 승격
-     * 판정이 아니므로, 호출자가 넘기는 {@code judgingSeeds}의 크기나
-     * 정렬 순서에 기대지 않고 이 클래스가 스스로 못박는다.
-     */
-    private static final List<Long> ROUND_ROBIN_SEEDS = LongStream.rangeClosed(1, 10).boxed().toList();
-
-    /**
      * 좌석 식별용 내부 예약 id. 세대·챔피언의 실제 {@code name()}과는
      * 무관하다. 세대 목록에 최종 챔피언 자신이 포함된 경우(마지막
      * 세대가 곧 최종 챔피언인 흔한 구성)에도, 또 두 이름이 우연히
@@ -76,11 +67,28 @@ public final class BundleBuilder {
 
     private BundleBuilder() {}
 
+    /**
+     * {@code roundRobinSeeds}는 이 클래스가 스스로 못박지 않는다 — 전역
+     * 제약값(1~10)의 단일 출처는 {@code arena-api}의 {@code Seeds}이고,
+     * {@code arena-tournament}는 {@code arena-api}를 참조할 수 없으니(의존은
+     * 단방향) 호출자가 그 상수를 그대로 넘겨야 한다. 예전엔 이 클래스가
+     * 자체 상수({@code ROUND_ROBIN_SEEDS})로 같은 값 1~10을 다시 적었는데,
+     * 그러면 같은 전역 제약이 두 곳에 독립된 리터럴로 존재하게 되어
+     * "Seeds가 단일 출처"라는 주장이 거짓이 된다 — 한쪽만 고치면 드리프트가
+     * 조용히 생긴다. null이거나 빈 리스트면 즉시 거부한다: 라운드로빈은
+     * 마지막에 한 번만 도는 기록용 히트맵이라, 빈 시드로 조용히 빈
+     * 행렬을 내보내면 "히트맵이 원래 비어 있었다"와 "호출자가 시드를
+     * 빠뜨렸다"를 구분할 수 없다.
+     */
     public static void build(
             List<Bot> generations, Bot finalChampion,
-            long gallerySeed, List<Long> judgingSeeds,
+            long gallerySeed, List<Long> judgingSeeds, List<Long> roundRobinSeeds,
             int width, int height,
             RecordStore store, Path outputDir) {
+
+        if (roundRobinSeeds == null || roundRobinSeeds.isEmpty()) {
+            throw new IllegalArgumentException("roundRobinSeeds가 비어 있다 — 라운드로빈 시드는 필수다");
+        }
 
         List<Replay> gallery = buildGallery(generations, finalChampion, gallerySeed, width, height);
         List<GenerationStat> stats = buildStats(
@@ -89,7 +97,8 @@ public final class BundleBuilder {
         writeJson(outputDir.resolve("gallery.json"), gallery);
         writeJson(outputDir.resolve("generations.json"), stats);
         writeJson(outputDir.resolve("loop-history.json"), buildHistory(generations, store));
-        writeJson(outputDir.resolve("roundrobin.json"), buildRoundRobin(generations, width, height));
+        writeJson(outputDir.resolve("roundrobin.json"),
+                buildRoundRobin(generations, roundRobinSeeds, width, height));
     }
 
     /**
@@ -189,7 +198,8 @@ public final class BundleBuilder {
 
     /**
      * 역대 전 세대 라운드로빈. 시드는 심사·홀드아웃과 별개로 고정된
-     * {@link #ROUND_ROBIN_SEEDS}(1~10)를 쓴다.
+     * 값(전역 제약: 1~10, 호출자가 넘기는 {@code roundRobinSeeds})을 쓴다
+     * — 그 값의 단일 출처는 호출자({@code arena-api}의 {@code Seeds})다.
      *
      * {@link RoundRobin#run}이 돌려주는 대각선의 {@link Double#NaN}을
      * 여기서 JSON {@code null}로 바꿔 내보낸다({@link #toWireMatrix}) —
@@ -203,11 +213,11 @@ public final class BundleBuilder {
      * 의미를 갖는 JSON 1급 값이라 그런 함정이 없다.
      */
     private static Map<String, Object> buildRoundRobin(
-            List<Bot> generations, int width, int height) {
+            List<Bot> generations, List<Long> roundRobinSeeds, int width, int height) {
 
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("bots", generations.stream().map(Bot::name).toList());
-        payload.put("matrix", toWireMatrix(RoundRobin.run(generations, ROUND_ROBIN_SEEDS, width, height)));
+        payload.put("matrix", toWireMatrix(RoundRobin.run(generations, roundRobinSeeds, width, height)));
         return payload;
     }
 
