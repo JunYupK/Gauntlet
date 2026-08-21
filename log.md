@@ -1376,6 +1376,34 @@ BundleBuilderTest > 세대와_챔피언의_이름이_같아도_scoreRate가_뭉�
 
 ---
 
+### D60. Task 19 — CLI 하네스, `BotRegistry`, `Seeds`, `MatchResult.isDraw()`의 "draw" 파생 필드 처리
+
+**"draw" 파생 필드를 arena-core도, 읽기 관용도도 건드리지 않고 고쳤다.** 브리프가 제시한 두 선택지(①`MatchResult`에 `@JsonIgnore`를 붙인다, ②읽는 쪽에서 알 수 없는 프로퍼티를 관대하게 넘긴다)를 둘 다 확인했다. ①은 `arena-core/build.gradle`의 명시적 원칙("arena-core는 어떤 프로덕션 의존성도 갖지 않는다 — 이 파일에 implementation 한 줄이 추가되는 순간 설계 원칙이 깨진다")과 정면으로 부딪힌다 — Jackson 애노테이션이라도 `arena-core`의 컴파일 classpath에 올라가야 컴파일된다. ②는 `RecordStore`·`BundleBuilder`가 다루는 모든 JSON에 대해 "모르는 필드는 조용히 넘긴다"를 전역으로 켜는 것이라, 진짜 스키마 드리프트(오타 난 필드명, 지워야 했는데 안 지운 필드)까지 같이 삼켜버린다 — 이 프로젝트의 대전제(재현 가능성 최우선)와 어긋난다.
+
+**조치.** 셋째 길: `RecordStore.MAPPER`·`BundleBuilder.MAPPER` 둘 다에 `mapper.setVisibility(PropertyAccessor.IS_GETTER, Visibility.NONE)`을 추가했다. Jackson의 레코드 지원은 getter 가시성 규칙이 아니라 정준 생성자 파라미터를 직접 프로퍼티로 삼으므로, `winner()`/`turns()`/`reason()`은 이 설정의 영향을 받지 않고 그대로 직렬화되고, `isXxx()` 관례를 따르는 파생 접근자(`isDraw()`)만 프로퍼티 인식에서 빠진다. 결과적으로 "draw"는 애초에 쓰이지 않으므로, 기본(엄격한) `FAIL_ON_UNKNOWN_PROPERTIES` 설정 그대로도 다시 읽을 수 있다 — 드리프트 감지는 전혀 약해지지 않았다.
+
+**왕복 검증.** `RecordStore`에 `saveReplays`와 대칭인 `readReplays(int gen)`을 추가해(이전까지 `saveReplays`는 쓰기만 있고 읽기가 없는 고아 메서드였다) `RecordStoreTest`에 `무승부_리플레이가_draw_필드_없이_실제_읽기_경로로_왕복한다`를 추가했다 — `MatchResult(-1, ...)`(무승부, `isDraw()==true`인 경우)를 담은 `Replay`를 저장하고 `readReplays`로 **진짜 역직렬화**해(JsonNode로 얼버무리지 않는다) 필드가 원본과 동일함을 확인한다. RED: `setVisibility` 줄만 지우고 돌리면 `assertFalse(json.contains("\"draw\""))`에서 실패(저장된 JSON에 실제로 `"draw"`가 있었다). GREEN: 원복 후 통과.
+
+**`RecordCommand --verify`가 이 버그를 실제로 밟는 지점.** 브리프 초안의 `--verify`는 두 번 지은 번들을 SHA-256 바이트 비교만 했다 — `MatchResult`를 전혀 역직렬화하지 않으므로 이 버그와 무관해 보였다. 하지만 그건 "재계산해서 대조한다"는 재검증의 정신에 못 미친다고 판단해, `gallery.json`을 실제로 `List<Replay>`로 역직렬화하고 각 리플레이의 필드로부터 `ReplayHash.of(...)`를 다시 계산해 저장된 `hash`와 대조하는 단계를 추가했다(바이트 비교는 그대로 유지 — 두 검증이 서로 다른 것을 잡는다: 해시 재계산은 "저장된 해시가 그 필드로부터 재현되는가", 바이트 비교는 "빌드 전체가 결정론적인가"). `BundleBuilder.MAPPER`를 고치지 않은 채 이 역직렬화 단계만 추가하고 `RecordCommandTest`를 돌렸더니:
+```
+verify는_두_번_돌려_해시가_같으면_0을_반환한다(Path) FAILED
+    java.io.UncheckedIOException
+        Caused by: com.fasterxml.jackson.databind.exc.UnrecognizedPropertyException
+```
+실측으로 확인한 뒤 `BundleBuilder.MAPPER`에도 같은 처방을 적용해 GREEN으로 되돌렸다. 이 시퀀스가 브리프의 carried-forward 항목 1("RecordCommand.run(verifyOnly)이 그 버그가 실제로 무는 경로")이 가리킨 지점을 정확히 재현한다.
+
+**CLI가 넘기는 봇 이름은 `ReplayHash`나 파일 경로에 임의 문자를 실어 나를 수 없다.** `GateCommand.run`·`ChallengeCommand.run`은 CLI 문자열을 가장 먼저 `BotRegistry.byName`에 넣는다 — 이 메서드는 미리 등록된 `Bot` 인스턴스(`GENERATIONS ∪ BASELINES`)와의 정확한 이름 일치만 돌려주는 화이트리스트다. 일치하지 않으면 무엇도 실행되지 않고 `IllegalArgumentException`으로 끝난다. 그래서 `ReplayHash`에 닿는 값(`ChallengeCommand`는 예약 id `__challenger__`/`__champion__`만 쓰므로 아예 안 닿고, G5 `DeterminismGate`는 `ctx.bot().name()`을 그대로 쓰므로 닿는다)은 항상 봇 자신의 소스에 박힌 `name()` 리터럴이지 CLI 인자 문자열 그 자체가 아니다 — 현재 그 리터럴들("Gen00Bot", "StraightBot", "RandomBot", "WallAvoidBot") 중 `"|"`를 담은 것은 없다. 파일 경로 쪽(`GateCommand.readSourceOrPlaceholder`)은 `generationOf`가 `"Gen" + 부호문자? + 숫자만 + "Bot"` 형태만 통과시키므로(`Integer.parseInt`가 실패하면 -1을 돌려 저장 자체를 건너뛴다) `/`나 `..`가 그 경로 조각에 섞일 길이 구조적으로 없다.
+
+**`BotRegistry.allGenerations()`는 `Bot::name` 문자열이 아니라 파싱한 숫자로 정렬한다.** 브리프 초안은 `Comparator.comparing(Bot::name)`을 그대로 썼는데, 이는 "GenNNBot"이 두 자리로 고정된 동안만 숫자 순서와 우연히 일치한다 — 100번째 세대가 생기면 문자열 정렬은 "Gen100Bot"을 "Gen20Bot"보다 앞에 놓는다("1" < "2"). `generationNumber(Bot)`을 따로 두어 접미사를 파싱해 `Comparator.comparingInt`로 비교하도록 바꿨다.
+
+**종료 코드 넷을 명확히 구분했다.** 브리프 초안은 관문/챔피언전 반려를 1로, "없는 봇 이름"·"도전자==챔피언"을 그대로 예외로 새게 두거나 2로 섞어 썼다. 최종 설계: 0=성공, 1=판정에 의한 거부(관문 반려/승격 실패/재현 검증 실패), 2=호출 오류(인자 누락·알 수 없는 명령·등록되지 않은 봇 이름·도전자==챔피언), 3=하네스 오류(위 셋 어디에도 안 속하는 처리되지 않은 예외 — `ArenaApplication.main`이 `RuntimeException`을 붙잡아 스택 트레이스 대신 이 코드로 바꾼다). `BotRegistry.byName`이 던지는 `IllegalArgumentException`을 `GateCommand`·`ChallengeCommand`가 각자 붙잡아 2로 반환하므로, 없는 이름을 줘도 스택 트레이스가 아니라 등록된 봇 목록을 보여주는 한 줄 메시지로 끝난다(실측: `./gradlew gate -Pbot=NoSuchBot` → 종료 코드 2, "그런 봇이 없다: NoSuchBot / 등록된 봇: [...]").
+
+**수동 검증 중 발견: `web/`은 실제로는 `.gitignore`에 없다.** 이 태스크의 carried-forward 항목 5는 "records/, web/은 git-ignored"라고 전제했지만, 실제 `.gitignore`는 `records/`, `web/node_modules/`, `web/.next/`만 무시하고 `web/public/data/`는 무시하지 않는다. `./gradlew record`를 수동 검증으로 돌렸더니 실제로 `git status`에 `web/`이 미추적 파일로 잡혔다(유닛 테스트는 전부 `@TempDir`만 쓰므로 이 문제와 무관하다 — 실제 저장소에 쓴 건 브리프 Step 6이 요구하는 수동 확인 명령뿐이었다). 커밋 전에 `web/`·`records/`를 지워 작업 트리를 깨끗하게 되돌렸다. `.gitignore`를 고치는 건 이 태스크의 Files 목록 밖이라 손대지 않았고, 다음에 CLI를 실제로 돌리는 사람(다음 태스크의 세대 루프 포함)을 위해 리포트에 남겨 둔다 — `web/public/data/`(또는 `web/` 전체)를 `.gitignore`에 추가하는 게 필요해 보인다.
+
+**검증.** RED/GREEN 시퀀스는 위 각 항목에 기술. `./gradlew test` — 45+11+11+51+43+2 = 163개(기존 156 + 신규 7: `BotRegistryTest` 4, `RecordStoreTest` 왕복 테스트 1, `RecordCommandTest` 2) 전부 GREEN. 수동 확인: `./gradlew gate -Pbot=Gen00Bot`(G7 반려, 종료 코드 1 → gradle BUILD FAILED가 기대한 그대로), `./gradlew record`(JSON 넷 생성), `./gradlew record -Pverify`(재현 검증 통과), `./gradlew challenge -Pbot=WallAvoidBot`(승점 승률 1.000으로 승격, 종료 코드 0), `./gradlew gate -Pbot=NoSuchBot`·`challenge -Pbot=NoSuchBot`(친절한 오류, 종료 코드 2 — 스택 트레이스 없음). `records/`·`web/`은 유닛 테스트에서는 이번에도 생성되지 않았고, 수동 검증이 만든 것은 커밋 전에 지웠다.
+
+---
+
 ## 다음 단계
 
 - [x] 스펙 문서 작성 및 자체 검토

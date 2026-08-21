@@ -7,6 +7,8 @@ import arena.core.SeriesRunner;
 import arena.core.Standing;
 import arena.diagnostics.LossAnalyzer;
 import arena.diagnostics.MatchMetrics;
+import com.fasterxml.jackson.annotation.JsonAutoDetect.Visibility;
+import com.fasterxml.jackson.annotation.PropertyAccessor;
 import com.fasterxml.jackson.core.util.DefaultIndenter;
 import com.fasterxml.jackson.core.util.DefaultPrettyPrinter;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -40,9 +42,19 @@ public final class BundleBuilder {
             .withObjectIndenter(new DefaultIndenter("  ", "\n"))
             .withArrayIndenter(new DefaultIndenter("  ", "\n"));
 
+    /**
+     * {@code IS_GETTER} 가시성을 낮추는 이유는 {@link RecordStore#MAPPER}의
+     * javadoc과 같다 — {@code gallery.json}이 담는 {@link Replay}에도
+     * {@code MatchResult}가 들어 있어 같은 {@code "draw"} 파생 필드 문제가
+     * 똑같이 생긴다. {@code arena-api}의 {@code record --verify}가 이
+     * 파일을 실제로 역직렬화해 해시를 재계산하므로(arena-tournament는
+     * arena-api를 모르지만, 소비자가 그렇게 쓴다) 여기서도 같은 처방이
+     * 필요하다.
+     */
     private static final ObjectMapper MAPPER = new ObjectMapper()
             .setDefaultPrettyPrinter(PRETTY_PRINTER)
-            .enable(SerializationFeature.INDENT_OUTPUT);
+            .enable(SerializationFeature.INDENT_OUTPUT)
+            .setVisibility(PropertyAccessor.IS_GETTER, Visibility.NONE);
 
     /**
      * 라운드로빈 시드(전역 제약: 1~10). 심사·홀드아웃 시드와는 별개로

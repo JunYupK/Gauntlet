@@ -2,6 +2,9 @@ package arena.tournament;
 
 import arena.core.Replay;
 import arena.gate.GateReport;
+import com.fasterxml.jackson.annotation.JsonAutoDetect.Visibility;
+import com.fasterxml.jackson.annotation.PropertyAccessor;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.core.util.DefaultIndenter;
 import com.fasterxml.jackson.core.util.DefaultPrettyPrinter;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -50,9 +53,40 @@ public final class RecordStore {
             .withObjectIndenter(new DefaultIndenter("  ", "\n"))
             .withArrayIndenter(new DefaultIndenter("  ", "\n"));
 
+    /**
+     * {@code MatchResult.isDraw()}는 레코드 컴포넌트가 아니라 자바빈
+     * 관례({@code isXxx()})를 따르는 파생 접근자다. Jackson은 기본
+     * 설정에서 이런 {@code isXxx()}도 프로퍼티로 인식해 직렬화 결과에
+     * 레코드에 없는 {@code "draw"} 필드를 추가로 써 넣고, 그 JSON을
+     * 그대로 되읽으면(엄격한 기본 설정 그대로) {@code UnrecognizedPropertyException}이
+     * 난다 — 재검증({@code record --verify})이 실제로 저장된 리플레이를
+     * 다시 읽어 해시를 재계산하는 이 클래스에서는 이게 그대로 하네스
+     * 오류로 번진다.
+     *
+     * 고친 자리는 두 곳 중 하나를 고를 수 있었다: (a) {@code MatchResult}에
+     * {@code @JsonIgnore}를 붙이거나 (b) 읽는 쪽에서 알 수 없는 프로퍼티를
+     * 관대하게 넘기거나. (a)는 {@code arena-core}가 어떤 프로덕션 의존성도
+     * 갖지 않는다는 그 모듈 자신의 build.gradle 원칙(주석 참고)을 깨야만
+     * 컴파일된다 — Jackson 애노테이션이라도 arena-core의 컴파일 classpath에
+     * 올라간다. (b)는 이 MAPPER가 다루는 모든 JSON에 대해 "모르는 필드는
+     * 조용히 넘긴다"를 전역으로 켜는 것이라, 진짜 스키마 드리프트(오타 난
+     * 필드명, 지워야 했는데 안 지운 필드)까지 같이 삼켜버린다.
+     *
+     * 그래서 셋째 길을 택했다: {@code MatchResult}도 건드리지 않고 읽기
+     * 관용도도 넓히지 않는다 — {@code PropertyAccessor.IS_GETTER}의
+     * 가시성을 {@code NONE}으로 낮춰, Jackson이 애초에 {@code isXxx()}
+     * 형태의 파생 접근자를 프로퍼티로 인식하지 않게 한다. 레코드
+     * 컴포넌트({@code winner()}, {@code turns()}, {@code reason()})는
+     * "is"로 시작하지 않으므로 이 설정의 영향을 받지 않고 그대로
+     * 직렬화된다 — Jackson의 레코드 지원은 getter 가시성 규칙이 아니라
+     * 정준 생성자 파라미터를 직접 프로퍼티로 삼기 때문이다. 결과적으로
+     * "draw"는 애초에 쓰이지 않으므로, 기본(엄격한) 설정 그대로도 다시
+     * 읽을 수 있다 — 드리프트 감지는 전혀 약해지지 않는다.
+     */
     private static final ObjectMapper MAPPER = new ObjectMapper()
             .setDefaultPrettyPrinter(PRETTY_PRINTER)
-            .enable(SerializationFeature.INDENT_OUTPUT);
+            .enable(SerializationFeature.INDENT_OUTPUT)
+            .setVisibility(PropertyAccessor.IS_GETTER, Visibility.NONE);
 
     private final Path root;
 
@@ -94,6 +128,22 @@ public final class RecordStore {
 
     public void saveReplays(int gen, List<Replay> replays) {
         writeJson(generationDir(gen).resolve("replays.json"), replays);
+    }
+
+    /**
+     * {@link #saveReplays}가 저장한 리플레이를 진짜로 역직렬화해 되읽는다
+     * (JsonNode로 얼버무리지 않는다 — 재검증이 이 클래스가 존재하는
+     * 이유다). 파일이 없으면 빈 리스트를 돌려준다.
+     */
+    public List<Replay> readReplays(int gen) {
+        Path path = generationDir(gen).resolve("replays.json");
+        if (!Files.exists(path)) return List.of();
+
+        try {
+            return MAPPER.readValue(path.toFile(), new TypeReference<List<Replay>>() {});
+        } catch (IOException e) {
+            throw new UncheckedIOException("리플레이를 읽을 수 없다: " + path, e);
+        }
     }
 
     /**

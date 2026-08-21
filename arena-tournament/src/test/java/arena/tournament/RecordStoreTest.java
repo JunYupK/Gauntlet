@@ -203,6 +203,37 @@ class RecordStoreTest {
         assertTrue(json.contains("\"hash\" : \"hash-abc\""), json);
     }
 
+    // --- MatchResult.isDraw()가 만드는 "draw" 파생 필드가 실제 읽기 경로를 막지 않는다 ---
+
+    @Test
+    void 무승부_리플레이가_draw_필드_없이_실제_읽기_경로로_왕복한다(@TempDir Path tmp) throws Exception {
+        RecordStore store = new RecordStore(tmp);
+        Replay draw = new Replay(
+                Replay.SCHEMA, "m-draw", 30, 30, 7L, false,
+                "bot0", new Point(5, 5), Direction.RIGHT,
+                "bot1", new Point(6, 5), Direction.LEFT,
+                "RL", new MatchResult(-1, 3, DeathReason.HEAD_ON_COLLISION),
+                "hash-draw");
+
+        store.saveReplays(11, List.of(draw));
+
+        // 저장된 JSON 자체에 파생 필드 "draw"가 없어야 한다 — 있다면
+        // 엄격한 기본 설정으로는 아래 readReplays가 예외를 던졌을 것이다.
+        String json = Files.readString(tmp.resolve("gen-11/replays.json"));
+        assertFalse(json.contains("\"draw\""), "isDraw()가 파생 필드로 새 나갔다: " + json);
+
+        // JsonNode로 얼버무리지 않고 RecordStore의 실제 읽기 경로로 되읽는다.
+        List<Replay> back = store.readReplays(11);
+
+        assertEquals(1, back.size());
+        Replay r = back.get(0);
+        assertTrue(r.result().isDraw());
+        assertEquals(-1, r.result().winner());
+        assertEquals(DeathReason.HEAD_ON_COLLISION, r.result().reason());
+        assertEquals("hash-draw", r.hash());
+        assertEquals(draw, r, "왕복 후 리플레이가 원본과 달라졌다");
+    }
+
     // --- historyOf의 경계 동작: 없는 세대 ---
 
     @Test

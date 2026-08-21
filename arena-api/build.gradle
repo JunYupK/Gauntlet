@@ -1,0 +1,18 @@
+plugins {
+    id 'org.springframework.boot'
+    id 'io.spring.dependency-management'
+}
+
+dependencies {
+    implementation project(':arena-core')
+    implementation project(':arena-bots')
+    implementation project(':arena-diagnostics')
+    implementation project(':arena-gate')
+    implementation project(':arena-tournament')
+    implementation 'org.springframework.boot:spring-boot-starter'
+    implementation 'com.fasterxml.jackson.core:jackson-databind:2.18.2'
+
+    testImplementation project(':arena-core')
+    testImplementation project(':arena-bots')
+    testImplementation project(':arena-tournament')
+}

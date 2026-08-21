@@ -27,3 +27,24 @@ subprojects {
         testLogging { events 'passed', 'failed', 'skipped' }
     }
 }
+
+// 에이전트가 쓰는 명령은 이 넷뿐이다.
+['gate', 'challenge'].each { name ->
+    tasks.register(name, JavaExec) {
+        group = 'arena'
+        description = "${name} — 봇 이름을 --bot=Gen07Bot 으로 준다"
+        dependsOn ':arena-api:classes'
+        classpath = project(':arena-api').sourceSets.main.runtimeClasspath
+        mainClass = 'arena.api.ArenaApplication'
+        args = [name, project.findProperty('bot') ?: '']
+    }
+}
+
+tasks.register('record', JavaExec) {
+    group = 'arena'
+    description = 'record — 발표 번들 생성. --verify 로 재현 검증'
+    dependsOn ':arena-api:classes'
+    classpath = project(':arena-api').sourceSets.main.runtimeClasspath
+    mainClass = 'arena.api.ArenaApplication'
+    args = project.hasProperty('verify') ? ['record', '--verify'] : ['record']
+}
