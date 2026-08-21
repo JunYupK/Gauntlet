@@ -199,4 +199,19 @@ class RecordStoreTest {
         RecordStore store = new RecordStore(tmp);
         assertTrue(store.historyOf(42).isEmpty());
     }
+
+    // --- historyOf는 읽기 전용이어야 한다: 없는 시도 디렉터리를 만들면 안 된다 ---
+
+    @Test
+    void 이력_조회는_비어있는_시도_번호의_디렉터리를_만들지_않는다(@TempDir Path tmp) {
+        RecordStore store = new RecordStore(tmp);
+        // attempt-1, attempt-3만 저장한다 — attempt-2는 (지워졌든 원래 없든) 비어 있다.
+        store.saveGateReport(4, 1, "a", rejected("G3"));
+        store.saveGateReport(4, 3, "c", rejected("G5"));
+
+        store.historyOf(4);
+
+        assertFalse(Files.exists(tmp.resolve("gen-04/attempt-2")),
+                "읽기 전용이어야 할 historyOf가 빈 시도 디렉터리를 만들었다");
+    }
 }

@@ -1281,9 +1281,13 @@ ChampionshipTest > 도전자와_챔피언_이름이_같아도_판정이_죽지_�
 
 **추가로 고정한 것.** 브리프가 준 6개 테스트 외에, 인터페이스에는 있지만 브리프 예시엔 없던 `saveReplays`를 커버하는 테스트(`리플레이를_JSON으로_남긴다`)와, `historyOf`의 빈 세대 경계(`시도가_없는_세대의_이력은_빈_리스트다`, 예외 없이 빈 리스트)를 추가했다.
 
-**바로잡은 것.** 브리프의 `AttemptRecord` javadoc은 "verdict는 PROMOTED 또는 REJECTED"라고 적었지만, 브리프 자신의 최소 구현 코드는 관문만 통과했을 때 `"PASSED"`를 쓴다(챔피언전까지 가야 PROMOTED다). javadoc이 실제 구현이 내는 세 번째 값을 누락한 것이므로, 코드 동작(PASSED/PROMOTED/REJECTED 세 값)을 정확히 반영하도록 javadoc을 고쳤다 — 동작 자체는 브리프 그대로다.
+**바로잡은 것 1 — javadoc.** 브리프의 `AttemptRecord` javadoc은 "verdict는 PROMOTED 또는 REJECTED"라고 적었지만, 브리프 자신의 최소 구현 코드는 관문만 통과했을 때 `"PASSED"`를 쓴다(챔피언전까지 가야 PROMOTED다). javadoc이 실제 구현이 내는 세 번째 값을 누락한 것이므로, 코드 동작(PASSED/PROMOTED/REJECTED 세 값)을 정확히 반영하도록 javadoc을 고쳤다 — 동작 자체는 브리프 그대로다.
 
-**검증.** RED: `./gradlew :arena-tournament:test --tests '*RecordStoreTest*'` — `RecordStore`, `AttemptRecord` 없어 12개 컴파일 에러, 예상대로. GREEN(브리프 6개): 같은 명령, 6개 전부 PASS. 이후 4가지 요구사항(재현성·NaN·5회 한도·경로 탈출)을 검증하는 테스트 7개를 추가해 `RecordStoreTest` 13개 전부 GREEN. `./gradlew test --rerun` 전체 139개(126+13) GREEN, 2분 5초, 빌드 출력 오류·경고 없음. 매 테스트가 `@TempDir`을 쓰므로 저장소 루트의 `records/`(`.gitignore` 대상)는 어떤 테스트에서도 생성되지 않았다 — `git status`로 확인.
+**바로잡은 것 2 — 자체 리뷰에서 찾은 부작용: `historyOf`(읽기)가 없는 시도 디렉터리를 만들 수 있었다.** 커밋 전 자체 리뷰에서 코드를 다시 읽다 발견했다. 브리프의 최소 구현은 `historyOf`가 각 시도를 순회할 때 `attemptDir(generation, attempt)`를 호출하는데, 이 메서드는 `save*`용으로 만들어진 것이라 호출할 때마다 `Files.createDirectories`로 디렉터리를 만든다. 시도 번호가 연속(1,2,3,...)일 때는 이미 존재하는 디렉터리라 `createDirectories`가 아무 일도 안 해 무해하지만, 시도 사이에 빈틈이 있으면(예: attempt-1, attempt-3만 있고 attempt-2가 없으면 `nextAttempt`가 4를 돌려주고 `historyOf`가 1~3을 순회) 조회만 했을 뿐인데 빈 `attempt-2/` 디렉터리가 디스크에 새로 생겨버린다 — 읽기 전용이어야 할 메서드가 파일시스템에 쓰기 부작용을 낸다.
+
+**조치.** 디렉터리를 만들지 않고 경로만 계산하는 `attemptPath`를 따로 두고, `historyOf`는 이걸 쓰도록 바꿨다. `attemptDir`(만드는 쪽)은 `save*` 계열에만 남겼다. `이력_조회는_비어있는_시도_번호의_디렉터리를_만들지_않는다` 테스트로 고정했다 — attempt-1·attempt-3만 저장한 뒤 `historyOf(4)`를 호출하고 `attempt-2` 디렉터리가 생기지 않았음을 확인한다. 이 테스트는 수정 전 코드에 대고 돌리면 실패한다(직접 확인 후 되돌려 재확인).
+
+**검증.** RED: `./gradlew :arena-tournament:test --tests '*RecordStoreTest*'` — `RecordStore`, `AttemptRecord` 없어 12개 컴파일 에러, 예상대로. GREEN(브리프 6개): 같은 명령, 6개 전부 PASS. 이후 4가지 요구사항(재현성·NaN·5회 한도·경로 탈출) 검증 테스트 7개와, 자체 리뷰로 찾은 부작용을 고정하는 테스트 1개를 더해 `RecordStoreTest` 14개 전부 GREEN. `./gradlew test --rerun` 전체 140개(126+14) GREEN, 2분 5초, 빌드 출력 오류·경고 없음. 매 테스트가 `@TempDir`을 쓰므로 저장소 루트의 `records/`(`.gitignore` 대상)는 어떤 테스트에서도 생성되지 않았다 — `git status`로 확인.
 
 **손대지 않은 것.** `RecordStore`는 저장·조회만 하고 세대 루프(다음 태스크)가 할 CONVERGED 판정이나 5회 한도 강제는 구현하지 않았다. `saveReplays`가 저장하는 `replays.json`을 다시 읽어오는 메서드는 인터페이스에 없어 추가하지 않았다.
 

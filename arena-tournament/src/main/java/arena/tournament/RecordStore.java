@@ -92,7 +92,7 @@ public final class RecordStore {
         List<AttemptRecord> history = new ArrayList<>();
 
         for (int attempt = 1; attempt < nextAttempt(generation); attempt++) {
-            Path dir = attemptDir(generation, attempt);
+            Path dir = attemptPath(generation, attempt);
 
             Path championship = dir.resolve("championship.json");
             if (Files.exists(championship)) {
@@ -118,14 +118,26 @@ public final class RecordStore {
         return root.resolve(String.format("gen-%02d", generation));
     }
 
+    /** 시도 디렉터리 경로. 없으면 만든다 — 쓰기 경로(save*)에서만 쓴다. */
     private Path attemptDir(int generation, int attempt) {
-        Path dir = generationDir(generation).resolve("attempt-" + attempt);
+        Path dir = attemptPath(generation, attempt);
         try {
             Files.createDirectories(dir);
         } catch (IOException e) {
             throw new UncheckedIOException("디렉터리를 만들 수 없다: " + dir, e);
         }
         return dir;
+    }
+
+    /**
+     * 시도 디렉터리 경로만 계산한다 — 디스크에 아무것도 만들지 않는다.
+     * {@code historyOf}처럼 읽기만 하는 경로에서 쓴다: 세대에 시도 번호가
+     * 연속이 아니게 비어 있을 때(예: attempt-2가 지워지고 attempt-1,
+     * attempt-3만 남았을 때)도 조회가 빈 attempt-2 디렉터리를 새로
+     * 만들어버리는 부작용이 없어야 한다.
+     */
+    private Path attemptPath(int generation, int attempt) {
+        return generationDir(generation).resolve("attempt-" + attempt);
     }
 
     private static void write(Path path, String content) {
