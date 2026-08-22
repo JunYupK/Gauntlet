@@ -16,6 +16,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 
 /**
  * 시도 이력을 파일로 남긴다.
@@ -107,13 +108,39 @@ public final class RecordStore {
         try (var entries = Files.list(genDir)) {
             return entries
                     .map(p -> p.getFileName().toString())
-                    .filter(n -> n.startsWith("attempt-"))
+                    .filter(RecordStore::isAttemptDirName)
                     .mapToInt(n -> Integer.parseInt(n.substring("attempt-".length())))
                     .max()
                     .orElse(0) + 1;
         } catch (IOException e) {
             throw new UncheckedIOException("시도 번호를 셀 수 없다: " + genDir, e);
         }
+    }
+
+    /**
+     * {@code attempt-<숫자>} 형식인가. 접두사만 보고 통과시키면 안 된다 —
+     * {@code attempt-3.bak}이나 {@code attempt-old} 같은 곁다리 하나가
+     * {@code Integer.parseInt}에서 {@link NumberFormatException}으로 터지고,
+     * 그건 {@link UncheckedIOException}에도 안 잡혀 CLI의 일반
+     * {@code RuntimeException} catch까지 올라가 <b>이후 모든 명령이 종료
+     * 코드 3</b>이 된다. 백업 파일 하나가 하네스를 망가진 것으로 보이게
+     * 만드는 셈이다. 기록 디렉터리는 사람이 들여다보고 손대는 곳이므로
+     * 그런 곁다리는 사고가 아니라 예상 가능한 일이다 — 조용히 무시한다.
+     *
+     * 숫자만 받으므로 {@code attempt--1}·{@code attempt-+3}·{@code attempt-}도
+     * 함께 걸러진다({@code Integer.parseInt}는 앞의 둘을 받아들인다).
+     */
+    private static boolean isAttemptDirName(String name) {
+        if (!name.startsWith("attempt-")) return false;
+
+        String suffix = name.substring("attempt-".length());
+        if (suffix.isEmpty()) return false;
+
+        for (int i = 0; i < suffix.length(); i++) {
+            if (!Character.isDigit(suffix.charAt(i))) return false;
+        }
+        // 자릿수가 int를 넘으면 parseInt가 터진다 — 그것도 곁다리로 취급한다.
+        return suffix.length() <= 9;
     }
 
     public void saveGateReport(int gen, int attempt, String botSource, GateReport report) {
@@ -163,7 +190,11 @@ public final class RecordStore {
                 ChallengeReport r = readJson(championship, ChallengeReport.class);
                 history.add(new AttemptRecord(generation, attempt,
                         r.promoted() ? "PROMOTED" : "REJECTED", "CHAMPIONSHIP", null,
-                        String.format("승점 승률 %.2f (기준 %.2f)", r.scoreRate(), r.threshold())));
+                        // Locale.ROOT: 이 문자열은 loop-history.json으로 흘러간다.
+                        // 기본 로케일에 맡기면 소수점이 쉼표인 로케일에서 같은
+                        // 입력이 다른 바이트를 만든다.
+                        String.format(Locale.ROOT, "승점 승률 %.2f (기준 %.2f)",
+                                r.scoreRate(), r.threshold())));
                 continue;
             }
 

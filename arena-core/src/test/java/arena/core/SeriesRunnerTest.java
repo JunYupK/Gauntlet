@@ -8,6 +8,28 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class SeriesRunnerTest {
 
+    /**
+     * 빈 시드로 시리즈를 돌리면 경기가 0판이고, 그 0판에서 평균을 내는
+     * 소비자는 0/0 = NaN을 얻는다 — 실제로 BundleBuilder.buildStats가
+     * 그 NaN을 generations.json에 조용히 써 넣고 있었다. 규칙의 정의는
+     * SeedList 하나뿐이고(SeedListTest가 규칙 자체를 못박는다), 이
+     * 테스트는 이 호출 지점이 실제로 그 규칙을 부르는지를 고정한다.
+     */
+    @org.junit.jupiter.api.Test
+    void 빈_시드_목록을_거부한다() {
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class,
+                () -> SeriesRunner.run("a", v -> Direction.UP, "b", v -> Direction.UP,
+                        java.util.List.of(), 30, 30, false));
+    }
+
+    /** 중복 시드도 같은 규칙으로 막힌다 — 같은 경기가 두 번 계산된다. */
+    @org.junit.jupiter.api.Test
+    void 중복된_시드_목록을_거부한다() {
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class,
+                () -> SeriesRunner.run("a", v -> Direction.UP, "b", v -> Direction.UP,
+                        java.util.List.of(3L, 3L), 30, 30, false));
+    }
+
     private static BotFunction avoid() {
         return view -> {
             for (Direction d : new Direction[]{

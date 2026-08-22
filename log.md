@@ -1689,6 +1689,26 @@ public Direction move(GameView v) { N[0]++; ... }
 
 ---
 
+### D71. 사소하지만 확실한 정정 다섯 — 그리고 빈/중복 시드 규칙을 SeedList 하나로 모았다
+
+리뷰의 "deferred-minor" 분류에서 올라온 항목들이다. 하나씩은 작지만 넷 중 셋이 **재현 가능성(R1)이나 종료 코드 계약**에 직접 닿아 있다.
+
+**① `GameView` javadoc이 거짓말을 하고 있었다.** "wall은 ... 방어적 복사본이다"라고 적혀 있었지만 이 레코드는 생성자에서도 접근자에서도 복사하지 않는다 — 넘겨받은 배열 참조를 그대로 들고 있다가 그대로 내준다. 방어는 **만드는 쪽**의 책임이다(엔진은 시야마다 `Grid.wallSnapshot()`을 새로 뜨고, `PositionSampler`는 같은 이유로 `copyOf`를 따로 둔다 — 그 클래스의 javadoc이 "GameView는 방어적으로 복사하지 않고 내부 참조를 그대로 내준다"고 이미 정반대로 적고 있었다). 그 거짓 문장을 믿고 표본 리스트의 `GameView`를 봇에게 그대로 넘기면 한 봇의 낙서가 국면에 영구히 남아 이후 심사되는 다른 봇들이 오염된 국면을 본다 — 레코드가 막아줄 것처럼 읽히는 문장이 정확히 그 사고를 부른다. F1의 문서 쪽 절반이다.
+
+**② 번들 해시가 플랫폼 기본 문자셋을 탔다.** `RecordCommand.digestOf`가 `p.getFileName().toString().getBytes()`로 파일명을 다이제스트에 먹였다 — 바이트 동일성이 존재 이유인 산출물에서 인코딩을 JVM 기본값에 맡긴 셈이다. `StandardCharsets.UTF_8`을 명시했다. **오늘 관측 가능한 동작 변화는 없다**는 것을 정직하게 적어 둔다: JDK 18의 JEP 400 이후 기본 문자셋이 로케일과 무관하게 UTF-8이고, 번들 파일명 넷(`gallery.json`·`generations.json`·`loop-history.json`·`roundrobin.json`)이 전부 ASCII다. `-Dfile.encoding=UTF-16`으로 띄운 JVM에서만 갈라진다 — 그래서 전용 테스트를 붙이지 않았다(별도 테스트 태스크를 하나 더 만들어야 재현되는데, 잠재적 정확성 한 줄에 그 구조는 과하다). 이건 회귀 수정이 아니라 잠재 결함 제거다.
+
+**③ `records/`의 곁다리 하나가 이후 모든 명령을 종료 코드 3으로 만들었다.** `nextAttempt`가 `attempt-` 접두사만 보고 나머지를 `Integer.parseInt`에 그대로 먹였다. `attempt-3.bak` 하나면 `NumberFormatException`이 터지는데, 그건 이 메서드의 `UncheckedIOException` catch에도 안 잡혀 CLI의 일반 `RuntimeException` catch까지 올라가 **하네스 오류(3)**가 된다 — 백업 파일 하나가 하네스를 망가진 것으로 보이게 만든다. 기록 디렉터리는 사람이 들여다보고 손대는 곳이라 이런 곁다리는 사고가 아니라 예상 가능한 일이다. 접미사가 전부 숫자인 이름만 받게 하고(자릿수 상한도 둬서 `parseInt` 범위 초과도 막는다) 나머지는 조용히 무시한다.
+
+**④ 빈·중복 시드 목록 — 세 곳에 흩어진 하나의 문제.** `BundleBuilder.buildStats`는 `totalTurns / n`으로 평균을 내는데 `n = replays.size()`다. 시드가 비면 경기가 0판이고 `0.0/0`은 예외가 아니라 **`NaN`** — 그 NaN이 그대로 `generations.json`에 직렬화된다. 화면은 빈 차트를 그리고, 보는 사람은 "이 세대는 원래 성적이 없다"와 "호출자가 시드를 빠뜨렸다"를 구분할 수 없다. `BundleBuilder`는 `roundRobinSeeds`에 대해서만 빈 목록을 거부하고 있었고 `judgingSeeds`·`Championship.judge`·`SeriesRunner`는 무검사였다.
+
+규칙을 세 자리에 각각 적는 대신 `arena.core.SeedList.validate(seeds, name)` 하나로 모으고 세 경계가 전부 이걸 부르게 했다. **이번 파동의 F1이 정확히 "같은 규칙의 네 번째 사본"이 만든 사고였다** — 같은 실수를 다른 규칙으로 반복할 이유가 없다. `arena-core`에 둔 이유는 의존 방향이다(`arena-tournament`는 `arena-core`를 보지만 그 반대는 아니므로, `SeriesRunner`도 함께 쓰려면 여기여야 한다). 중복도 함께 거부한다 — 같은 시드가 두 번 들어오면 완전히 같은 경기가 두 번 치러지고, 결정론이라 결과가 정확히 같기 때문에 그 중복이 승률·평균을 조용히 편향시킨다. 승격 판정(60%)이 걸린 자리에서 실력이 아니라 인자 실수가 판정을 바꾸는 길이다.
+
+**⑤ 로케일 두 곳.** `RecordStore.historyOf`의 `"승점 승률 %.2f (기준 %.2f)"`(→ `loop-history.json`)와 `TimeBudgetGate`의 p50/p99 문자열(→ `gate-report.json`)이 기본 로케일을 탔다. 소수점이 쉼표인 로케일에서 같은 입력이 다른 바이트를 만든다. 둘 다 `Locale.ROOT`를 박았다(후자는 D69에서 통과 시 실측값을 남기는 변경과 같은 줄이라 그때 함께 처리했다).
+
+**검증.** 전체 `./gradlew test` — 208개 GREEN(F1 직후 187 + 이번 파동 21). **되돌려서 실패를 확인했다**: `isAttemptDirName` 필터, 두 `Locale.ROOT`, `BundleBuilder`·`SeriesRunner`의 `SeedList.validate`를 한꺼번에 원래대로 되돌리니 정확히 다섯 개가 실패했다 — `빈_judgingSeeds는_NaN을_쓰지_않고_거부한다`, `중복된_judgingSeeds도_거부한다`, `숫자가_아닌_attempt_디렉터리는_조용히_무시한다`, `지나치게_긴_숫자_이름도_터지지_않는다`, `이력_문자열은_로케일이_바뀌어도_같다`. `SeedListTest`는 `SeedList` 자체를 안 건드렸으므로 GREEN으로 남았다(규칙과 배선을 나눠 시험하고 있다는 증거다). 즉시 원복.
+
+---
+
 ## 다음 단계
 
 - [x] 스펙 문서 작성 및 자체 검토

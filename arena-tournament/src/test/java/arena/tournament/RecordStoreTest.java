@@ -13,10 +13,79 @@ import org.junit.jupiter.api.io.TempDir;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Locale;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 class RecordStoreTest {
+
+    /**
+     * {@code records/} 아래 곁다리 하나가 이후 모든 명령을 종료 코드 3으로
+     * 만들면 안 된다.
+     *
+     * {@code nextAttempt}는 {@code attempt-} 접두사만 보고 남은 부분을
+     * {@code Integer.parseInt}에 그대로 먹였다 — {@code attempt-3.bak}
+     * 하나가 {@link NumberFormatException}으로 터지고, 그건
+     * {@code UncheckedIOException} catch에도 안 잡혀 CLI의 일반
+     * {@code RuntimeException} catch까지 올라가 "하네스 오류(3)"가 된다.
+     * 기록 디렉터리는 사람이 들여다보고 손대는 곳이라 백업 파일 하나가
+     * 하네스를 망가진 것으로 보이게 만드는 셈이었다.
+     */
+    @Test
+    void 숫자가_아닌_attempt_디렉터리는_조용히_무시한다(@TempDir Path tmp) throws Exception {
+        RecordStore store = new RecordStore(tmp);
+        store.saveGateReport(7, 1, "class A {}", rejected("G3"));
+        store.saveGateReport(7, 2, "class A {}", rejected("G4"));
+
+        Path genDir = tmp.resolve("gen-07");
+        Files.createDirectories(genDir.resolve("attempt-3.bak"));
+        Files.createDirectories(genDir.resolve("attempt-old"));
+        Files.createDirectories(genDir.resolve("attempt-"));
+        Files.createDirectories(genDir.resolve("attempt--1"));
+        Files.createDirectories(genDir.resolve("notes"));
+        Files.writeString(genDir.resolve("attempt-9.txt"), "메모");
+
+        assertEquals(3, assertDoesNotThrow(() -> store.nextAttempt(7)),
+                "곁다리 이름이 시도 번호 계산을 오염시켰다");
+    }
+
+    /**
+     * 이력의 detail 문자열은 loop-history.json으로 흘러 들어간다. 기본
+     * 로케일에 맡기면 소수점이 쉼표인 로케일에서 같은 입력이 다른 바이트를
+     * 만든다 — 이 산출물의 존재 이유가 바이트 동일성이다. 기본 로케일을
+     * 실제로 바꿔 놓고 재서, 끝나면 되돌린다.
+     */
+    @Test
+    void 이력_문자열은_로케일이_바뀌어도_같다(@TempDir Path tmp) {
+        Locale original = Locale.getDefault();
+        try {
+            RecordStore store = new RecordStore(tmp);
+            store.saveChallengeReport(7, 1, challengeRejected());
+
+            Locale.setDefault(Locale.US);
+            String us = store.historyOf(7).get(0).detail();
+
+            Locale.setDefault(Locale.GERMANY);
+            String de = store.historyOf(7).get(0).detail();
+
+            assertEquals(us, de, "로케일에 따라 이력 문자열이 달라진다");
+            assertTrue(de.contains("0.48"),
+                    "독일어 로케일에서 소수점이 쉼표로 바뀌었다: " + de);
+        } finally {
+            Locale.setDefault(original);
+        }
+    }
+
+    /** 자릿수가 int를 넘는 이름도 parseInt를 터뜨리지 않고 무시된다. */
+    @Test
+    void 지나치게_긴_숫자_이름도_터지지_않는다(@TempDir Path tmp) throws Exception {
+        RecordStore store = new RecordStore(tmp);
+        store.saveGateReport(7, 1, "class A {}", rejected("G3"));
+
+        Files.createDirectories(tmp.resolve("gen-07").resolve("attempt-99999999999999999999"));
+
+        assertEquals(2, assertDoesNotThrow(() -> store.nextAttempt(7)));
+    }
 
     private GateReport rejected(String gate) {
         return new GateReport("Gen07Bot", false, gate, gate + " 위반",

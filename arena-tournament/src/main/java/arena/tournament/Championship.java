@@ -2,6 +2,7 @@ package arena.tournament;
 
 import arena.bots.Bot;
 import arena.core.Replay;
+import arena.core.SeedList;
 import arena.core.SeriesRunner;
 import arena.core.Standing;
 import arena.diagnostics.LossAnalyzer;
@@ -56,6 +57,9 @@ public final class Championship {
             Bot challenger, Bot champion,
             List<Long> judgingSeeds, List<Long> holdoutSeeds,
             int width, int height) {
+
+        SeedList.validate(judgingSeeds, "judgingSeeds");
+        SeedList.validate(holdoutSeeds, "holdoutSeeds");
 
         List<Replay> replays = SeriesRunner.run(
                 CHALLENGER_ID, challenger::move,

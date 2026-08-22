@@ -28,6 +28,43 @@ class BundleBuilderTest {
                 new RecordStore(records), out);
     }
 
+    /**
+     * 빈 judgingSeeds는 NaN을 조용히 generations.json에 써 넣었다.
+     *
+     * {@code buildStats}는 {@code totalTurns / n}으로 평균을 내는데
+     * {@code n = replays.size()}이고, 시드가 비면 경기가 0판이라 n=0 —
+     * {@code 0.0/0}은 예외가 아니라 {@code NaN}이다. 그 NaN이 그대로
+     * 직렬화돼 화면은 빈 차트를 그리고, 보는 사람은 "이 세대는 원래
+     * 성적이 없다"와 "호출자가 시드를 빠뜨렸다"를 구분할 수 없다.
+     * {@code roundRobinSeeds}는 원래부터 빈 목록을 거부하고 있었는데
+     * {@code judgingSeeds}만 무검사였다 — 같은 규칙을 일관되게 건다.
+     */
+    @Test
+    void 빈_judgingSeeds는_NaN을_쓰지_않고_거부한다(@TempDir Path tmp) {
+        List<Bot> generations = List.of(new Gen00Bot());
+        Path out = tmp.resolve("data");
+
+        IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
+                () -> BundleBuilder.build(generations, new WallAvoidBot(), 1L,
+                        List.of(), SEEDS, 30, 30, new RecordStore(tmp.resolve("records")), out));
+
+        assertTrue(e.getMessage().contains("judgingSeeds"),
+                "어느 인자가 잘못됐는지 메시지에 없다: " + e.getMessage());
+        assertFalse(Files.exists(out.resolve("generations.json")),
+                "거부했는데 generations.json이 이미 쓰였다 — 검사가 쓰기보다 늦다");
+    }
+
+    /** 중복 시드도 같은 규칙으로 막힌다 — 같은 경기가 두 번 계산되면 평균이 편향된다. */
+    @Test
+    void 중복된_judgingSeeds도_거부한다(@TempDir Path tmp) {
+        List<Bot> generations = List.of(new Gen00Bot());
+
+        assertThrows(IllegalArgumentException.class,
+                () -> BundleBuilder.build(generations, new WallAvoidBot(), 1L,
+                        List.of(1L, 1L), SEEDS, 30, 30,
+                        new RecordStore(tmp.resolve("records")), tmp.resolve("data")));
+    }
+
     @Test
     void 화면이_읽을_파일_넷을_만든다(@TempDir Path tmp) {
         Path out = tmp.resolve("data");

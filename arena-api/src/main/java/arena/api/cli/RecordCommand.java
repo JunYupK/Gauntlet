@@ -11,6 +11,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.MessageDigest;
@@ -139,7 +140,11 @@ public final class RecordCommand {
                 files.sorted(Comparator.comparing(Path::getFileName))
                         .forEach(p -> {
                             try {
-                                md.update(p.getFileName().toString().getBytes());
+                                // 반드시 UTF-8을 명시한다. 플랫폼 기본 문자셋에
+                                // 맡기면 같은 번들이 기계마다 다른 해시를 낸다 —
+                                // 바이트 동일성이 이 산출물의 존재 이유다.
+                                md.update(p.getFileName().toString()
+                                        .getBytes(StandardCharsets.UTF_8));
                                 md.update(Files.readAllBytes(p));
                             } catch (IOException e) {
                                 throw new UncheckedIOException(e);

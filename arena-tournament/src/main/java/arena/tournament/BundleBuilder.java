@@ -3,6 +3,7 @@ package arena.tournament;
 import arena.bots.Bot;
 import arena.core.Match;
 import arena.core.Replay;
+import arena.core.SeedList;
 import arena.core.SeriesRunner;
 import arena.core.Standing;
 import arena.diagnostics.LossAnalyzer;
@@ -86,9 +87,13 @@ public final class BundleBuilder {
             int width, int height,
             RecordStore store, Path outputDir) {
 
-        if (roundRobinSeeds == null || roundRobinSeeds.isEmpty()) {
-            throw new IllegalArgumentException("roundRobinSeeds가 비어 있다 — 라운드로빈 시드는 필수다");
-        }
+        // 두 시드 목록 모두 같은 규칙으로 검사한다. 예전에는 roundRobinSeeds만
+        // 빈 목록을 거부하고 judgingSeeds는 무검사로 통과해서, 빈 judgingSeeds가
+        // buildStats의 0으로 나누기를 지나 NaN 평균으로 generations.json에
+        // 조용히 기록됐다 — 화면은 빈 차트를 그리고, 보는 사람은 "성적이 없다"와
+        // "호출자가 시드를 빠뜨렸다"를 구분할 수 없다.
+        SeedList.validate(judgingSeeds, "judgingSeeds");
+        SeedList.validate(roundRobinSeeds, "roundRobinSeeds");
 
         List<Replay> gallery = buildGallery(generations, finalChampion, gallerySeed, width, height);
         List<GenerationStat> stats = buildStats(

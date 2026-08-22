@@ -49,6 +49,8 @@ public final class SeriesRunner {
             String id1, BotFunction bot1,
             List<Long> seeds, int width, int height, boolean parallel) {
 
+        SeedList.validate(seeds, "seeds");
+
         int total = seeds.size() * 2;
         List<Callable<Replay>> tasks = new ArrayList<>(total);
         for (int i = 0; i < total; i++) {
