@@ -5,6 +5,7 @@ import arena.core.GameView;
 
 import java.util.Arrays;
 import java.util.List;
+import java.util.Locale;
 
 /**
  * G6 — 시간 예산.
@@ -86,12 +87,24 @@ public final class TimeBudgetGate implements Gate {
         double p50 = percentileMillis(nanos, 0.50);
         double p99 = percentileMillis(nanos, 0.99);
 
+        // 실측값은 통과할 때도 남긴다. 예전에는 pass()가 빈 detail을 주는
+        // 바람에 여유가 얼마나 남았는지를 아무도 볼 수 없었다 — 마진이
+        // 세대를 거듭하며 줄어드는 게 보이지 않다가, 어느 날 반려로
+        // 뒤집히고 나서야 처음 숫자를 보게 된다. 그 시점엔 "언제부터
+        // 느려졌나"를 되짚을 기록이 없다. GateResult의 정준 생성자가
+        // public이므로 통과 결과에도 detail을 실을 수 있다.
+        //
+        // Locale.ROOT를 박은 이유: 이 문자열은 gate-report.json으로
+        // 흘러 들어간다. 기본 로케일에 맡기면 소수점이 쉼표인 로케일에서
+        // 같은 입력이 다른 바이트를 만든다 — 이 산출물의 존재 이유가
+        // 바이트 동일성이다.
+        String measured = String.format(Locale.ROOT,
+                "p50 %.3f ms, p99 %.3f ms (상한 %.1f ms)", p50, p99, p99LimitMillis);
+
         if (p99 <= p99LimitMillis) {
-            return GateResult.pass(id());
+            return new GateResult(id(), true, measured);
         }
-        return GateResult.fail(id(), String.format(
-                "너무 느리다 — p50 %.3f ms, p99 %.3f ms (상한 %.1f ms)",
-                p50, p99, p99LimitMillis));
+        return GateResult.fail(id(), "너무 느리다 — " + measured);
     }
 
     /** 반환값이 null이 아니면 웜업 중 문제가 생긴 것 — 실패 결과를 그대로 올린다. */
