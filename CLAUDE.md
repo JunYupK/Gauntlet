@@ -195,6 +195,36 @@ CLI(`arena.api.ArenaApplication`)는 종료 코드 넷을 구분한다 — 호�
 | 2 | 호출 오류 — 인자 누락, 알 수 없는 명령, 등록되지 않은 봇 이름, 도전자==챔피언 |
 | 3 | 하네스 오류 — 위 세 경우 어디에도 속하지 않는 처리되지 않은 예외 |
 
+**이 코드를 `./gradlew`의 종료 코드에서 읽으려 하지 말 것.** Gradle의
+`JavaExec`은 0이 아닌 코드를 전부 빌드 실패로 뭉갠다 — 그대로 두면
+1·2·3이 호출자에게 똑같이 1로 보여서, 이 표가 나눠 놓은 구분이 정작
+위에 적힌 명령으로는 관측되지 않는다. 그래서 CLI가 진짜 코드를 표준
+출력의 **마지막 줄**에 한 번 더 싣는다:
+
+```
+ARENA_EXIT_CODE=<0|1|2|3>
+```
+
+이 줄은 `./gradlew`로 부르든 `java -cp … arena.api.ArenaApplication`으로
+직접 부르든 똑같이 나온다(`ArenaApplication.run`이 찍는다). 순수 ASCII인
+이유는 Gradle이 띄운 자식 JVM의 표준 출력이 UTF-8이 아닐 수 있기
+때문이다 — 실제로 이 CLI의 한국어 메시지는 `./gradlew gate` 출력에서
+`??`로 깨져 나온다. 스크립트는 이렇게 읽는다:
+
+```bash
+CODE=$(./gradlew gate -Pbot=Gen07Bot | grep -o 'ARENA_EXIT_CODE=[0-3]' | tail -1 | cut -d= -f2)
+```
+
+**Gradle 태스크 자체는 하네스 오류(3)일 때만 실패한다.** 관문 반려(1)는
+세대 루프의 정상적이고 흔한 결과이지 빌드 고장이 아니다 — 그걸
+`BUILD FAILED`로 만들면 "봇이 거부됐다"와 "하네스가 깨졌다"가 다시 한
+신호로 합쳐진다. 이렇게 두면 Gradle의 종료 코드마저 그 구분의 충실한
+이진 투영이 된다: **0이 아니면 하네스가 깨진 것이다.**
+
+그 대가로 **호출 오류(2)도 `BUILD SUCCESSFUL`로 끝난다.** 봇 이름을 잘못
+준 호출자는 초록 불을 본다 — 종료 코드만 보고 성공으로 판단하지 말고
+반드시 `ARENA_EXIT_CODE` 줄을 읽어야 한다.
+
 **절차상** `gate`를 먼저 통과시키고 나서 `challenge`를 돌린다 — 이건
 관문이 강제하는 게 아니다. `ChallengeCommand.run`은 gate 리포트를 전혀
 참조하지 않고 곧바로 `Championship.judge`를 부르므로, gate를 안 돌리고
