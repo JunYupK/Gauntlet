@@ -91,15 +91,33 @@ public final class PositionSampler {
                 v.myHead(), v.myDir(), v.oppHead(), v.oppDir(), v.turn());
     }
 
-    /** 리플레이를 재생하며 매 턴 두 봇의 시야를 만든다. */
-    private static List<GameView> viewsOf(Replay replay) {
+    /**
+     * 리플레이를 재생하며 매 턴 두 봇의 시야를 만든다.
+     *
+     * 시작 격자는 반드시 {@link Match#initialGrid}로 만든다 — 엔진은
+     * 시작 칸 2개뿐 아니라 그 바로 뒤 칸 2개까지 벽으로 확정한다(첫 턴
+     * 반전이 자기 벽 충돌이 되게 하려고). 한때 여기서 그 규칙을 다시
+     * 베껴 시작 칸 2개만 claim 했는데, 그러면 재구성한 보드가 턴 1부터
+     * 엔진의 실제 보드와 두 칸 어긋난다 — 표본 전체(G4·G5 ①층·G6가
+     * 공유한다)가 엔진이 결코 만들지 않는 국면이 되고, {@code
+     * isDeadly(뒤쪽)}가 엔진에서는 true인데 표본에서는 false가 되어
+     * G4가 낸 반례를 실제 경기로 재현할 수 없게 된다. {@link
+     * arena.diagnostics.LossAnalyzer}가 같은 이유로 이미 이 메서드를
+     * 부른다 — 규칙의 정의는 arena-core에 하나뿐이다.
+     *
+     * 패키지 전용으로 열어 둔 이유는 테스트다: {@code sample()}이
+     * 돌려주는 평평한 리스트만으로는 어느 국면이 어느 리플레이의 몇
+     * 번째 턴인지 되짚을 수 없어, "표본 보드가 엔진 보드와 같은가"를
+     * 대조할 수 없다.
+     */
+    static List<GameView> viewsOf(Replay replay) {
         List<GameView> views = new ArrayList<>();
 
-        Grid grid = new Grid(replay.width(), replay.height());
+        Grid grid = Match.initialGrid(
+                new StartPositions(replay.start0(), replay.dir0(), replay.start1(), replay.dir1()),
+                replay.width(), replay.height());
         Point[] head = { replay.start0(), replay.start1() };
         Direction[] dir = { replay.dir0(), replay.dir1() };
-        grid.claim(head[0], 0);
-        grid.claim(head[1], 1);
 
         for (int turn = 1; turn <= replay.result().turns(); turn++) {
             // 두 시야가 wall 배열을 공유하면, 한 봇이 자기 시야를 훼손했을 때
