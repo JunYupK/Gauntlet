@@ -247,6 +247,15 @@ CODE=$(./gradlew gate -Pbot=Gen07Bot | grep -o 'ARENA_EXIT_CODE=[0-3]' | tail -1
 준 호출자는 초록 불을 본다 — 종료 코드만 보고 성공으로 판단하지 말고
 반드시 `ARENA_EXIT_CODE` 줄을 읽어야 한다.
 
+그리고 이 투영은 **한 방향으로만** 성립한다. `ARENA_EXIT_CODE` 줄을 찍는
+것은 `ArenaApplication.run` 자신이므로, 그 지점에 닿기 전에 JVM이 죽으면
+(잡히지 않은 `Error`, `OutOfMemoryError`, 강제 종료) 줄이 아예 나오지
+않는다 — 그런데 Gradle은 3이 아니면 실패시키지 않으므로 이 경우가
+`BUILD SUCCESSFUL`로 보인다. 그래서 **`ARENA_EXIT_CODE` 줄이 아예 없으면
+그것도 하네스가 죽은 것으로 읽어야 한다.** 위의 `grep` 예시는 그때 빈
+문자열을 내놓는다 — 스크립트는 빈 값을 성공이 아니라 3과 같이 다뤄야
+한다.
+
 **절차상** `gate`를 먼저 통과시키고 나서 `challenge`를 돌린다 — 이건
 관문이 강제하는 게 아니다. `ChallengeCommand.run`은 gate 리포트를 전혀
 참조하지 않고 곧바로 `Championship.judge`를 부르므로, gate를 안 돌리고
