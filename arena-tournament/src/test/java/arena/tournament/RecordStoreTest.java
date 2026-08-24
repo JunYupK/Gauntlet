@@ -394,4 +394,42 @@ class RecordStoreTest {
     void 기록이_아예_없는_세대의_홀드아웃도_NaN이다(@TempDir Path tmp) {
         assertTrue(Double.isNaN(new RecordStore(tmp).holdoutOf(9)));
     }
+
+    /**
+     * (리뷰 정정) 기존 세 테스트는 전부 "디스크상 마지막 시도"와 "마지막으로
+     * 승격한 시도"가 우연히 일치한다 — {@code Championship.judge}가 반려
+     * 리포트의 {@code holdoutScoreRate}를 항상 NaN으로 채우므로, 승격
+     * 다음에 반려가 오는 순서를 시험하지 않으면 {@code r.promoted()} 가드를
+     * 빼고 "마지막 championship.json을 무조건 덮어쓴다"로 바꿔도 세 테스트
+     * 모두 그대로 통과한다. 그 순서를 직접 재현해야 가드가 실제로 하는
+     * 일이 드러난다.
+     */
+    @Test
+    void 승격_뒤에_반려가_와도_승격한_시도의_값을_읽는다(@TempDir Path tmp) {
+        RecordStore store = new RecordStore(tmp);
+        store.saveChallengeReport(5, 1, new ChallengeReport(
+                "Gen05Bot", "Gen04Bot", true, 0.71, 0.60, 65, 12, 23, 0.63, List.of()));
+        store.saveChallengeReport(5, 2, new ChallengeReport(
+                "Gen05Bot", "Gen04Bot", false, 0.48, 0.60, 20, 8, 22, Double.NaN, List.of()));
+
+        assertEquals(0.63, store.holdoutOf(5), 1e-9,
+                "마지막 시도가 반려여도 승격한 시도의 홀드아웃이 남아야 한다");
+    }
+
+    /**
+     * 클래스 javadoc이 "승격 시도가 둘이면 마지막 것을 취한다"고 명시적으로
+     * 주장하는 부분을 시험한다 — 이 시험이 없으면 그 주장은 아무도 지키지
+     * 않는 문서일 뿐이다.
+     */
+    @Test
+    void 승격한_시도가_둘이면_나중_것을_읽는다(@TempDir Path tmp) {
+        RecordStore store = new RecordStore(tmp);
+        store.saveChallengeReport(6, 1, new ChallengeReport(
+                "Gen06Bot", "Gen05Bot", true, 0.65, 0.60, 60, 10, 30, 0.61, List.of()));
+        store.saveChallengeReport(6, 2, new ChallengeReport(
+                "Gen06Bot", "Gen05Bot", true, 0.71, 0.60, 65, 12, 23, 0.63, List.of()));
+
+        assertEquals(0.63, store.holdoutOf(6), 1e-9,
+                "승격한 시도가 둘이면 마지막 승격의 홀드아웃을 읽어야 한다");
+    }
 }
