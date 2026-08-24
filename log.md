@@ -2320,6 +2320,108 @@ trailAlpha(10,20)` — 단조성 검사는 "감소하지 않는다"만 보므로
 
 ---
 
+## D80 — 화면 1 세대 갤러리: 하나의 턴 카운터가 R3를 증명한다 (Task 8)
+
+**무엇을 놓았나.** `web/src/lib/layout.ts`(`panelGrid`),
+`web/src/components/GalleryPanel.tsx`(캔버스 + 생존 턴 카운터 하나),
+`web/src/components/PlaybackControls.tsx`(재생/정지·배속·처음으로,
+상태 없는 순수 표시 컴포넌트), `web/src/components/Gallery.tsx`(신규 —
+아래 참고), `web/src/app/gallery/page.tsx`. 테스트는
+`web/src/test/layout.test.ts`.
+
+**브리프에 없던 파일 하나를 더 놓았다 — `Gallery.tsx`.** 브리프의
+"Create" 목록은 `layout.ts`·`GalleryPanel.tsx`·`PlaybackControls.tsx`·
+`app/gallery/page.tsx` 넷이다. 그런데 `page.tsx`는 `loadBundle()`을
+직접 부르는 서버 컴포넌트여야 하고(`server-only`가 박힌 `bundle.ts`를
+쓰는 기존 `app/page.tsx`와 같은 패턴), 공유 턴 카운터는 `useState`·
+`useEffect`·`requestAnimationFrame`이 필요한 클라이언트 상태다. 서버
+컴포넌트 파일 안에 훅을 둘 수 없으므로, 번들을 읽는 자리(`page.tsx`)와
+턴을 도는 자리(클라이언트) 사이에 경계가 하나 있어야 했다. `GalleryPanel`
+하나에 이 오케스트레이션을 얹으면 "패널이면서 동시에 전체를 관장하는"
+이중 책임이 생기므로, 그 자리를 별도 클라이언트 컴포넌트로 뺐다 —
+`page.tsx`는 여전히 `Replay[]`만 건네주는 얇은 서버 컴포넌트로 남는다.
+
+**`panelGrid`: cols = ceil(sqrt(n)), rows = ceil(n/cols).** 가로를
+먼저 정사각형에 가깝게 잡고 그 폭이 못 채우는 나머지를 세로로 민다.
+이 형태에서 `cols >= rows`는 대수적으로 항상 성립하고(`cols >=
+sqrt(n)` → `n/cols <= cols` → `ceil(n/cols) <= cols`), 빈 자리도
+항상 `cols`칸 미만이다(`rows`가 "cols칸씩 채울 때 필요한 최소 줄
+수"이므로 `(rows-1)*cols < n`). 스펙 §9.1의 두 예 — 12 → {cols:4,
+rows:3}, 16 → {cols:4, rows:4} — 를 `toEqual`로 정확히 박았다.
+
+**브리프의 네 단언을 점검했다 — 이번에도 구멍이 있었다.** 브리프가
+직접 준 넷(두 예의 정확 일치, 모든 패널 배치, 빈 자리 최소, cols >=
+rows)을 그대로 통과하면서도 `panelGrid(n) = { cols: n, rows: 1 }`(한
+줄로 죽 늘어놓기)로 12·16 두 값만 하드코딩 예외 처리하는 구현이
+가능했다 — 나머지 모든 n에서 이 "한 줄" 배치는 빈 자리 0(최소를
+자명하게 만족)이고 `cols >= rows`도 `n >= 1`이면 항상 참이라 두
+성질 테스트를 전부 통과한다. 12·16 바로 옆(11·13·15)이나 그 밖의
+흔한 값(1·2·9·20·24·36)에서 실제로 정사각형에 가까운 배치가 나오는지
+`toEqual`로 못박는 테스트를 추가해 이 구멍을 막았다. 함께 추가한
+`count < 1`·비정수 입력에 대한 `throw` 테스트는, 갤러리가 빈 배열을
+받았을 때 `{cols:0, rows:0}` 같은 값으로 조용히 렌더를 통과해버리는
+경로를 막는다. 브리프의 넷은 손대지 않았다.
+
+**Task 7이 남긴 캔버스 재사용 함정을 실제로 마주했다.** `ArenaCanvas`는
+`turn`이 뒤로 갈 때만 전체 다시 그리고, `decoded` prop 자체가 바뀐 것은
+감지하지 않는다(`drawn` ref는 턴 번호만 본다). 갤러리에서
+`gallery.map((replay, generation) => <GalleryPanel .../>)`을 돌 때
+암묵적 배열 인덱스를 key로 두면, 이 배열이 나중에(정렬·필터링 기능이
+붙는 등) 순서가 바뀌는 순간 같은 자리의 `ArenaCanvas` 인스턴스가
+재사용되며 이전 매치의 픽셀 위에 새 매치를 덧칠하는 사고가 난다.
+`key={replay.matchId}`를 박아 매치 정체성이 곧 컴포넌트 정체성이
+되게 했다 — 매치가 바뀌면 React가 항상 새 캔버스로 마운트한다.
+지금 이 배열은 페이지 수명 동안 순서가 안 바뀌므로 이 버그가 지금
+당장 재현되지는 않지만, 그건 "우연히 안전하다"이지 "구조적으로
+안전하다"가 아니다 — 브리프가 요구한 게 후자였다.
+
+**공유 시계는 하나, `requestAnimationFrame` 하나, 경과 시간 기반.**
+`Gallery`가 `turnFloatRef`(경과 시간을 누적하는 float, 매 프레임
+바뀌지만 렌더를 유발할 필요가 없어 ref)와 화면에 반영하는 정수
+`turn`(state) 둘을 나눠 든다. `setInterval`로 턴을 세지 않고
+`ts - lastTsRef.current`로 실제 경과 ms를 매 프레임 구해 배속을
+곱한다 — 탭이 백그라운드로 갔다 와도(rAF가 그동안 안 불렸을 뿐) 다음
+프레임에서 실제 경과 시간만큼 한 번에 점프하지, 패널마다 다른 오차가
+쌓이지 않는다(패널은 이 turn 하나를 prop으로 받아 쓰기만 하므로
+애초에 어긋날 자리가 없다). 모든 패널이 끝나는 턴(`Math.max(...
+gallery.map(r => r.result.turns))`)에 닿으면 `setPlaying(false)`로
+루프 자체를 접는다 — 이미 다 죽은 뒤에도 rAF를 계속 돌리는 건 낭비다.
+
+**생존 턴 카운터는 `replay.result.turns`에서 읽는다 — R1.**
+`decoded.turnCount`(이 화면의 디코더가 moves를 다시 읽어 얻은 값)와
+값은 같아야 하지만(conformance 테스트가 보증), 화면에 찍는 숫자
+자체는 재계산이 아니라 번들 원본이어야 한다는 요구를 문자 그대로
+지켰다. `ArenaCanvas` 인덱싱에 넘기는 턴만 `decoded.turnCount`로
+클램프한다 — 그건 디코더 자신이 만든 배열 밖을 읽지 않기 위한
+내부 구현 디테일이지, 화면에 찍는 숫자가 아니다.
+
+**디코딩은 클라이언트에서.** `page.tsx`는 `bundle.gallery`(`Replay[]`)만
+`Gallery`에 넘기고, `decodeReplay`는 `GalleryPanel` 안에서
+`useMemo(() => decodeReplay(replay), [replay])`로 부른다. `next
+build` 결과 `/gallery` 라우트는 정적 HTML 24KB, First Load JS
+2.82kB(공유 청크 제외) — 턴 수백 개의 격자 상태를 서버에서 직렬화해
+넘겼다면 이 페이지의 HTML이 수 MB로 불었을 자리다.
+
+**세 갈래로 확인.**
+`npm test` — 49개 전부 GREEN(layout 10개 신규 + 기존 39개).
+`npm run build:demo` — 정적 export 성공, `/gallery` 24KB.
+`npm run dev` + Playwright 헤드리스로 실제 동작을 봤다: 12패널이
+동시에 4턴에서 시작(모든 패널이 같은 시작 벽 4칸), 2.5초 뒤
+세대 0(13턴 짜리)·세대 1(29턴 짜리)이 이미 회색조로 굳고 "종료"가
+붙은 채 "생존 13턴"·"생존 29턴"에 고정된 반면 세대 2~11은 공유
+턴값(30턴)에서 나란히 총천연색으로 살아있었고, 6.5초 뒤에도 세대
+0·1은 그대로, 나머지는 71턴으로 같이 전진해 있었다 — 앞 세대가
+먼저 회색이 되고 뒤 세대는 계속 산다는 R3의 그림이 스크립트로 찍은
+텍스트에서도 그대로 나왔다(스크린샷도 같은 것을 보여준다). 4배속
+버튼을 누르면 더 빨리 죽었고, 정지 버튼을 누른 동안 카운터가 안
+움직였고("PAUSED_STABLE=true"), 처음으로를 누르니 12패널 전부
+"생존 0턴"으로 동시에 돌아갔다. 콘솔 에러 0건. 저장소에 이 프로젝트
+전용 실행 스킬이 없어(D79와 같은 상황) 전역 `playwright`
+(`/opt/node22/lib/node_modules/playwright`)로 직접 캡처했다 —
+`chromium-cli`는 이 컨테이너에 없었다.
+
+---
+
 ## 다음 단계
 
 - [x] 스펙 문서 작성 및 자체 검토
