@@ -2848,6 +2848,97 @@ good(`#0ca30c`)/critical(`#d03b3b`)를 썼다 — 다크 표면에서 둘 다 �
 
 ---
 
+## D86 — 발표 셸 + 스모크 + CI: "무엇이 깨지면 이 테스트가 통과하는가"를 매번 물었다 (Task 14)
+
+**무엇을 놓았나.** `web/src/lib/screens.ts`(신규, `SCREENS` — 순서의
+유일한 출처), `web/src/components/Deck.tsx`(신규, ←/→/Space 내비게이션),
+`web/src/app/layout.tsx`·`page.tsx`(수정, 목차+셸), `web/e2e/smoke.spec.ts`,
+`web/playwright.config.ts`, `.github/workflows/ci.yml`(잡 `web` 추가),
+`CLAUDE.md` §13. 부수적으로 `web/src/components/Gallery.tsx`(자동재생
+끔)와 `GalleryPanel.tsx`(`data-panel`/`data-turn-counter` 훅) — 이유는
+아래.
+
+**발표 순서는 스펙 §9.2를 그대로 둔다 — 결과 먼저, 과정 나중이다.**
+갤러리 → 개선 곡선 → 루프 타임라인 → 코드 diff → 단일 경기 → 히트맵.
+이 순서를 코드에 딱 한 곳(`lib/screens.ts`의 `SCREENS`)에만 적었다 —
+홈의 목차와 `Deck`의 키보드 내비게이션이 같은 배열을 본다. 순서를 두
+군데에 따로 적으면 한쪽만 바뀌는 사고가 난다는 게 이유다.
+
+**`SCREENS`를 `Deck.tsx`(`'use client'`)가 아니라 별도 파일에 둔 것은
+실제로 빌드가 죽어서 알았다.** 처음엔 `Deck.tsx`에서 `export const
+SCREENS`를 두고 서버 컴포넌트인 `page.tsx`가 그걸 import해 `.map`을
+불렀다 — RSC 경계에서 `'use client'` 파일의 모든 export는 컴포넌트가
+아니어도 "클라이언트 참조"로 치환된다는 걸 몰랐다. `next build`가
+프리렌더 단계에서 `TypeError: SCREENS.map is not a function`으로 바로
+잡아냈다(정적 export라 빌드 타임에 모든 페이지를 실제로 렌더링하기
+때문). 고친 방법은 순수 데이터를 `'use client'` 경계가 없는
+`lib/screens.ts`로 옮기는 것 — 화면 2·4·6이 이미 쓰던 "계산은 lib에,
+그리기는 컴포넌트에" 관례를 그대로 따른 것뿐이다.
+
+**Playwright 스모크는 시각 회귀가 아니다(스펙 §14가 금지).** 콘솔 오류
+0건 + 갤러리 패널 수(데모 번들 12개, `>0`이 아니라 정확히 `12`) +
+재생하면 턴 카운터가 실제로 바뀌는지, 셋만 본다. 이걸로 끝내지 않고
+**"무엇이 깨지면 이 테스트가 통과하는가"를 assertion마다 직접
+검증했다** — `GalleryPanel`에서 `data-panel`을 지워 빌드하고 스모크를
+돌려 실제로 "Expected: 12, Received: 0"으로 실패하는 걸 확인했고,
+`Deck`에 `console.error('sabotage')`를 심어 7개 화면의 콘솔-오류
+테스트가 전부 실패하는 것도 확인했다(둘 다 원상복구 후 재검증).
+이전 태스크들이 반복해서 배운 교훈 — "깨질 수 없는 테스트를 만들지
+않는다" — 을 이번엔 실제로 부수는 실험으로 증명했다.
+
+**`Gallery`의 자동재생을 껐다.** 원래 `playing` 초기값이 `true`였는데,
+그러면 화면에 들어가는 순간 재생 버튼 라벨이 이미 "정지"라 스모크가
+찾는 "재생" 버튼이 없다(브리프의 스모크 스펙이 요구하는 정확한 클릭
+대상). 화면 5(`MatchDiagnosisView`)는 애초에 `false`로 시작하던
+관례였으므로 화면 1도 거기 맞췄다 — 발표자 관점에서도 화면에 들어가자마자
+초 단위로 흘러가 멈출 새가 없는 것보다, 준비되면 누르는 쪽이 낫다.
+
+**Space 재생/정지는 상태를 공유하지 않고 버튼을 찾아 누른다.**
+`Deck`은 전역에 한 번 마운트되지만 재생 상태는 `Gallery`·
+`MatchDiagnosisView` 각자가 들고 있다. 커스텀 이벤트로 상태를 동기화하는
+대신, 두 화면이 이미 똑같은 라벨("재생"/"정지")을 쓰는
+`PlaybackControls` 버튼을 `document.querySelectorAll('button')`으로
+찾아 `.click()`한다 — 상태를 몰라도 되고, 버튼이 없는 화면(목차·루프
+타임라인 등)에서는 조용히 아무 일도 안 한다.
+
+**CI `web` 잡은 데모 번들을 재생성해 커밋된 것과 대조한다.** 이걸
+안 하면 백엔드가 wire 스키마를 바꿨을 때 `web/fixtures/`가 낡은 채
+남고, 프론트 테스트는 그 낡은 픽스처 위에서 계속 초록 불을 내다가
+진짜 번들로 빌드하는 발표 당일에 처음 깨진다. `./gradlew fixture`의
+`ARENA_EXIT_CODE` 줄을 직접 읽고(Gradle 종료 코드를 믿지 않는 이유는
+§8과 기존 `test` 잡의 D72와 같다), `git diff --exit-code -- web/fixtures`로
+드리프트를 잡는다. 기존 `test` 잡은 손대지 않았다.
+
+**`@playwright/test`를 캐럿 없이 `1.56.0`으로 정확히 고정했다.**
+이 환경(`/opt/pw-browsers`)엔 Chromium 리비전 1194 하나만 있다.
+`playwright-core`의 `browsers.json`을 여러 버전(`1.50.0`~`1.56.0`)의
+npm 패키지를 직접 받아 리비전을 대조해 `1.56.0`이 정확히 1194를
+기대하는 버전임을 확인했다(`1.55.1`은 1193, `1.55.2`는 배포 없음).
+캐럿(`^1.56.0`)을 허용하면 다음 `npm install`이 조용히 더 새 버전을
+골라 다른 리비전을 찾다가 "executable doesn't exist"로 죽는다 — CI에서는
+`npm ci`가 (스킵 변수 없이) 매번 새로 다운로드하므로 문제가 없지만, 이
+샌드박스처럼 사전 설치된 브라우저 하나에 의존하는 환경에선 버전 고정이
+그 짝을 지키는 유일한 방법이다.
+
+**실제 세대 1개짜리 번들로도 빌드가 됨을 확인했다.** `./gradlew record`
+(현재 레지스트리엔 `Gen00Bot` 하나) → `npm run build` 성공, 그 위에
+Playwright 콘솔-오류 테스트 7개를 다시 돌려 전부 통과(패널·재생 테스트는
+데모 번들 전용 수치라 데모에서만 돌린다). 화면들이 원래부터 `generation
+=== 0`/`최댓값` 찾기, `minX === maxX` 가드, `sorted.find(g-1)`의 `null`
+분기 등으로 세대 1개를 이미 견디게 짜여 있어서(화면 2·4·6이 D81·D83·D85에
+이미 남긴 설계) 이번 태스크에서 화면 코드를 고칠 필요는 없었다 — 다만
+`Gallery`의 자동재생 끄기(위)는 화면 1에 대한 실질적인 수정이다.
+
+**네 갈래로 확인.** ①`npm test` — 94개 전부 GREEN(변경 없음, 기존
+그대로). ②`npm run build:demo && npx playwright test` — 9개 전부
+GREEN(화면별 콘솔-오류 7 + 패널 수 1 + 재생 카운터 1), 위의 사보타주
+실험으로 두 핵심 assertion이 실제로 깨질 수 있음을 확인. ③`./gradlew
+record && npm run build` — 진짜 번들(세대 1개) 성공, 콘솔-오류 스모크
+7개 재확인 GREEN. ④`./gradlew fixture` 재실행 후 `git diff --exit-code
+-- web/fixtures` — 드리프트 없음(빈 diff).
+
+---
+
 ## 다음 단계
 
 - [x] 스펙 문서 작성 및 자체 검토

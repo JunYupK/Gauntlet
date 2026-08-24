@@ -26,7 +26,12 @@ export function Gallery({ gallery }: { gallery: Replay[] }) {
   const maxTurnRef = useRef(Math.max(0, ...gallery.map((r) => r.result.turns)));
 
   const [turn, setTurn] = useState(0);
-  const [playing, setPlaying] = useState(true);
+  // 자동재생하지 않는다: 발표자가 이 화면에 들어온 순간 곧바로 초 단위로
+  // 흘러가 버리면 "재생" 버튼을 찾아 멈출 새도 없다 — Task 14의 스모크가
+  // "재생" 버튼을 눌러 카운터가 올라가는지를 보므로(그 버튼은 정지
+  // 상태에서만 "재생"이라는 라벨을 갖는다), 이 화면도 화면 5
+  // (`MatchDiagnosisView`)와 같은 관례로 멈춘 채 시작한다.
+  const [playing, setPlaying] = useState(false);
   const [speed, setSpeed] = useState<Speed>(1);
 
   // 경과 시간을 턴으로 바꾸는 누적값. 매 프레임 바뀌지만 렌더를 유발할

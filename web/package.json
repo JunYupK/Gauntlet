@@ -7,7 +7,8 @@
     "dev": "ARENA_BUNDLE=fixtures/data next dev",
     "build": "ARENA_BUNDLE=public/data next build",
     "build:demo": "ARENA_BUNDLE=fixtures/data next build",
-    "test": "ARENA_BUNDLE=fixtures/data vitest run"
+    "test": "ARENA_BUNDLE=fixtures/data vitest run",
+    "test:e2e": "playwright test"
   },
   "keywords": [],
   "author": "",
@@ -21,12 +22,14 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@playwright/test": "1.56.0",
     "@tailwindcss/postcss": "^4.3.3",
     "@types/diff": "^7.0.2",
     "@types/node": "^26.2.0",
     "@types/react": "^19.2.18",
     "@vitejs/plugin-react": "^6.1.0",
     "postcss": "^8.5.26",
+    "serve": "^14.2.5",
     "tailwindcss": "^4.3.3",
     "typescript": "^5.9.3",
     "vitest": "^4.1.11"

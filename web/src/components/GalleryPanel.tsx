@@ -34,12 +34,18 @@ export function GalleryPanel({ replay, generation, turn }: {
   const canvasTurn = Math.min(turn, decoded.turnCount);
 
   return (
-    <div className="flex flex-col items-center gap-1 rounded-lg border border-neutral-800 bg-neutral-900 p-2">
+    // data-panel: Task 14 스모크가 "패널이 세대 수만큼 그려진다"를 셀
+    // 때 쓰는 훅이다 — 클래스명이 아니라 이 속성으로 세는 이유는
+    // Tailwind 클래스는 리팩터로 바뀔 수 있어도 이 속성은 "패널 하나"
+    // 라는 의미 자체를 이름으로 갖기 때문이다.
+    <div data-panel className="flex flex-col items-center gap-1 rounded-lg border border-neutral-800 bg-neutral-900 p-2">
       <div className="w-full truncate text-center text-sm font-medium text-neutral-200">
         세대 {generation} · {replay.bot0Id}
       </div>
       <ArenaCanvas decoded={decoded} turn={canvasTurn} cellSize={cellSize} dead={dead} />
-      <div className="font-mono text-xs tabular-nums text-neutral-400">
+      {/* data-turn-counter: 스모크가 재생 후 이 텍스트가 바뀌는지 본다
+          (같은 훅 이유 — 텍스트 문구가 바뀌어도 속성은 남는다). */}
+      <div data-turn-counter className="font-mono text-xs tabular-nums text-neutral-400">
         생존 {survived}턴{dead ? ' · 종료' : ''}
       </div>
     </div>
