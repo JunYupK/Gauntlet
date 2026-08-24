@@ -1,0 +1,8 @@
+rootProject.name = 'bot-arena'
+
+include 'arena-core'
+include 'arena-bots'
+include 'arena-diagnostics'
+include 'arena-gate'
+include 'arena-tournament'
+include 'arena-api'

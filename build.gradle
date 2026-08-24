@@ -1,0 +1,82 @@
+plugins {
+    id 'java'
+    id 'org.springframework.boot' version '3.4.1' apply false
+    id 'io.spring.dependency-management' version '1.1.7' apply false
+}
+
+subprojects {
+    apply plugin: 'java'
+
+    group = 'arena'
+    version = '0.1.0'
+
+    java {
+        toolchain { languageVersion = JavaLanguageVersion.of(21) }
+    }
+
+    repositories { mavenCentral() }
+
+    dependencies {
+        testImplementation platform('org.junit:junit-bom:5.11.3')
+        testImplementation 'org.junit.jupiter:junit-jupiter'
+        testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+    }
+
+    test {
+        useJUnitPlatform()
+        testLogging { events 'passed', 'failed', 'skipped' }
+    }
+}
+
+// CLI가 구분하는 종료 코드(0 성공 / 1 판정에 의한 거부 / 2 호출 오류 /
+// 3 하네스 오류 — 규칙서 §8)는 JavaExec을 그냥 통과하지 못한다.
+// ignoreExitValue의 기본값이 false라 0이 아닌 코드가 전부 빌드 실패
+// (=Gradle 종료 코드 1)로 뭉개져서, 문서화된 호출 경로인
+// ./gradlew gate -Pbot=... 로는 1·2·3이 똑같이 1로 보였다.
+//
+// 그래서 두 갈래로 나눈다.
+//  - 진짜 코드는 애플리케이션이 표준 출력 마지막 줄
+//    ARENA_EXIT_CODE=<n> 으로 직접 찍는다(ArenaApplication.run).
+//    Gradle을 거치든 java -cp 로 직접 부르든 같은 줄이 나온다.
+//  - Gradle 태스크 자체는 하네스 오류(3)일 때만 실패시킨다. 관문 반려(1)는
+//    세대 루프의 정상적이고 흔한 결과이지 빌드 고장이 아니다 — 그걸
+//    BUILD FAILED로 만들면 "봇이 거부됐다"와 "하네스가 깨졌다"가 다시
+//    한 신호로 합쳐진다. 이렇게 두면 Gradle의 종료 코드마저 그 구분의
+//    충실한 이진 투영이 된다: 0이 아니면 하네스가 깨진 것이다.
+//
+// 주의: 이 규칙 아래에서는 호출 오류(2)도 BUILD SUCCESSFUL로 끝난다.
+// 봇 이름을 잘못 준 호출자는 초록 불을 본다 — 대신 CLI가 "그런 봇이
+// 없다: <이름> / 등록된 봇: [...]"을 찍고 ARENA_EXIT_CODE=2가 남는다.
+// 종료 코드만 보고 판단하지 말고 반드시 그 줄을 읽어야 한다.
+def arenaExec = { org.gradle.api.tasks.JavaExec task ->
+    task.group = 'arena'
+    task.dependsOn ':arena-api:classes'
+    task.classpath = project(':arena-api').sourceSets.main.runtimeClasspath
+    task.mainClass = 'arena.api.ArenaApplication'
+    task.ignoreExitValue = true
+    task.doLast {
+        int code = task.executionResult.get().exitValue
+        if (code == 3) {
+            throw new GradleException(
+                    "하네스 오류 — 봇의 잘못이 아니다 (ARENA_EXIT_CODE=3). " +
+                            "위 스택 트레이스를 볼 것.")
+        }
+    }
+}
+
+// 에이전트가 쓰는 명령은 이 셋뿐이다.
+['gate', 'challenge'].each { name ->
+    tasks.register(name, JavaExec) {
+        arenaExec(it)
+        description = "${name} — 봇 이름을 -Pbot=Gen07Bot 으로 준다. " +
+                "진짜 종료 코드는 출력의 ARENA_EXIT_CODE=<n> 줄에 있다"
+        args = [name, project.findProperty('bot') ?: '']
+    }
+}
+
+tasks.register('record', JavaExec) {
+    arenaExec(it)
+    description = 'record — 발표 번들 생성. -Pverify 로 재현 검증. ' +
+            '진짜 종료 코드는 출력의 ARENA_EXIT_CODE=<n> 줄에 있다'
+    args = project.hasProperty('verify') ? ['record', '--verify'] : ['record']
+}
