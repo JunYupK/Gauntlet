@@ -2665,6 +2665,85 @@ D82까지는 Playwright 스크린샷을 남겼지만 그건 "확인 기록"이�
 
 ---
 
+## D84 — 화면 5 단일 경기 + 진단: 턴 인덱스 변환을 한 함수에 가두고 버그를 실제로 주입해 테스트가 잡는지 확인했다 (Task 12)
+
+**무엇을 놓았나.** `web/src/lib/worst.ts`(`lossSeries`, `worstFor`),
+`web/src/components/MatchDiagnosisView.tsx`(신규 클라이언트 컴포넌트 —
+화면 1·2·4와 같은 이유로 브리프의 "Create" 목록엔 없다),
+`web/src/app/match/page.tsx`. 테스트는 `web/src/test/worst.test.ts`.
+
+**이 화면의 유일한 실질 위험은 턴 인덱스 규약이 섞이는 것이다.**
+`MatchDiagnosis.reach`/`.loss`는 `[bot][턴]` 배열이고 턴은 0-based(인덱스
+0 = 턴 1)인데, 같은 JSON 안의 `MoveAnalysis.turn`(`worstMoves0`/
+`worstMoves1`)은 1-based다. 그래프(loss 배열 출신)와 "가장 나쁜 수"
+목록(MoveAnalysis 출신)이 한 화면에 동시에 뜨므로, 이 변환이 어긋나면
+봉우리와 "가장 나쁜 수"가 한 칸씩 밀리고 이 화면이 주장하는 것("기계가
+이 턴을 짚었다")이 조용히 거짓이 된다. 인덱스↔턴 변환을 `lossSeries`
+한 함수에만 두었다 — 컴포넌트 쪽에는 `+1`도 `-1`도 없다.
+
+**버그를 실제로 주입해서 브리프 테스트가 잡는지 확인했다** — 추론이
+아니라 실측으로. `lossSeries`의 `i + 1`을 `i`로 바꿔(0-based를 그대로
+turn으로 씀) `npm test`를 돌리니 8개 중 4개가 빨갛게 죽었다: 브리프가
+박아 둔 "가장 나쁜 수의 turn이 loss 계열의 봉우리와 같은 턴을 가리킨다"
+테스트가 정확히 그중 하나였다(기댓값 2, 받은 값 1). 확인 후 원본으로
+되돌리고 `npm test`가 다시 8/8 GREEN인 걸 봤다. `worstFor`는 재정렬·
+재계산 없이 `worstMoves0`/`worstMoves1`을 그대로 옮기기만 한다 —
+백엔드(`LossAnalyzer.worstMoves`, Task 2)가 이미 `fatal`을 loss보다
+먼저 정렬 키로 쓰므로, 죽은 좌석의 사망 수는 항상 이 목록 안에 있다.
+
+**브리프에 없는 추가 케이스 넷.** ①off-by-one 버그를 코드 안에서
+직접 흉내 내(`i`로 채운 가짜 lossSeries) 그 결과가 진짜 `worstFor`
+turn과 어긋나는 걸 단언 — 위 실측과 별개로, 이 실패 모드가 코드
+안에도 회귀 테스트로 남게. ②loss가 전부 0인 경기도 turn 목록이
+`[1,2,3]`으로 정상 나오는지(자멸 없는 평범한 경기의 인덱싱). ③
+`worstFor`가 입력 배열을 그대로(`toBe`, 참조 동일성) 돌려주는지 —
+재정렬·자르기를 하지 않는다는 계약을 못박음. ④`fatal:true`·`loss:0`
+조합(정면 충돌)이 그대로 실리는지 — 스펙이 요구하는 "fatal은 loss와
+독립"을 데이터 계약 쪽에서도 확인.
+
+**`ArenaCanvas` 재사용 함정 — 화면 1(GalleryPanel/D81)과 같은 문제,
+같은 해법.** 이 화면은 경기 하나만 보여주지만 사용자가 탭으로 어떤
+경기를 볼지 고른다. `ArenaCanvas`의 `drawn` ref는 `decoded` prop이
+다른 경기로 바뀐 것 자체를 감지하지 못하고, 턴이 뒤로 갈 때만 전체
+다시 그린다 — 그래서 `key={replay.matchId}`를 캔버스에 못박아 경기가
+바뀌면 항상 새 캔버스로 마운트되게 했다. 봉우리·"가장 나쁜 수" 클릭으로
+턴이 뒤로 점프하는 것은 이미 `ArenaCanvas`가 처리하는 경로(턴 < drawn)라
+별도 대응이 필요 없었다 — 잘못될 수 있는 지점은 경기 교체 하나뿐이었다.
+경기를 바꾸면 `turn`/재생 상태도 0으로 리셋한다(안 하면 새 경기가 이전
+경기의 마지막 턴에서 시작해 버린다).
+
+**fatal은 loss와 별도 시각 신호로 얹었다.** 그래프의 "가장 나쁜 수"
+마커는 금색(`#eda100`, LoopTimeline의 "승격" 강조와 같은 값) 테두리가
+기본이고, `fatal:true`인 마커만 빨강(`#d03b3b`, LoopTimeline "반려"·
+DiffViewer "삭제"와 같은 값) 테두리로 바뀐다 — loss가 0인 정면 충돌
+수도 이 빨강 테두리로 잡힌다(계획 1의 판정: 정면 충돌은 자멸률에 안
+넣지만 fatal 플래그로는 싣는다). 두 상태색 다 이 저장소 안에서 이미
+검증돼 쓰이던 값이라 새로 팔레트 검증을 돌릴 필요가 없었다. 좌석
+색(청 `#38bdf8`/주황 `#fb923c`)은 그래프의 두 loss 계열(봇0/봇1) 자체에
+쓴다 — 이 화면은 좌석별 비교가 목적이라 좌석색 사용이 맞다는 브리프
+지시를 그대로 따랐고, 봉우리·fatal 강조는 그와 겹치지 않는 별도
+슬롯(금색/빨강)을 썼다.
+
+**경기와 진단은 matchId로 짝짓는다, 배열 위치가 아니라.** `BundleBuilder
+.buildDiagnosis`가 gallery를 그대로 순회해 만들어 실제로는 순서가
+같지만(자바 쪽 확인함), 그 보장에 기대지 않고 `gallery.find`/
+`diagnosis.find`로 `matchId`를 맞춘다 — `curve.ts`의 baseline/latest가
+배열 위치 대신 `generation` 값으로 원소를 찾는 것과 같은 이유(D72
+이전부터의 관례).
+
+**세 갈래로 확인.** `npm test` — 84개 전부 GREEN(worst 8개 신규 + 기존
+76개). `npm run build:demo` — 정적 export 성공, `/match` 4.75kB(공유
+청크 제외), 타입 에러 0. 육안: `out/match.html`에서 기본 선택 경기
+(`StraightBot-vs-DemoChampionBot-seed1`)의 실제 fatal 수(턴 13, 정면
+충돌 아닌 자멸)에 대한 마커 툴팁 텍스트("턴 13 · fatal")와 fatal 배지가
+정확히 1회씩 찍히고, 캔버스가 `width="510"`(30칸 × 17px, 하드코딩된 30
+없이 decoded.width에서 계산)로 렌더되는 걸 grep으로 확인했다. 헤드리스
+스크린샷은 D83과 같은 이유로 생략 — spec §11 T5(시각 회귀 테스트 금지)
+경계 밖이고, 이 화면도 색·텍스트가 HTML 속성에 그대로 노출돼 grep으로
+충분했다.
+
+---
+
 ## 다음 단계
 
 - [x] 스펙 문서 작성 및 자체 검토
