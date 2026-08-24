@@ -105,6 +105,7 @@ public final class BundleBuilder {
         writeJson(outputDir.resolve("loop-history.json"), buildHistory(generations, store));
         writeJson(outputDir.resolve("roundrobin.json"),
                 buildRoundRobin(generations, roundRobinSeeds, width, height));
+        SourceBundle.write(generations, store, outputDir);
     }
 
     /**
@@ -269,7 +270,7 @@ public final class BundleBuilder {
         return wire;
     }
 
-    private static void writeJson(Path path, Object value) {
+    static void writeJson(Path path, Object value) {
         try {
             Files.createDirectories(path.getParent());
             MAPPER.writeValue(path.toFile(), value);

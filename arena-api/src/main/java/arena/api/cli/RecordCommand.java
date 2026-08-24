@@ -132,18 +132,33 @@ public final class RecordCommand {
         return null;
     }
 
-    /** 번들 전체를 파일명 순으로 이어붙여 해시한다. */
+    /**
+     * 번들 전체를 상대 경로 순으로 이어붙여 해시한다.
+     *
+     * {@code Files.list}(비재귀)가 아니라 {@code Files.walk}를 쓴다 —
+     * Task 3에서 {@code sources/}가 outputDir 아래 하위 디렉터리로
+     * 들어오면서, 비재귀 나열이 그 디렉터리 자체를 "파일"로 집어
+     * {@code Files.readAllBytes}에 넘기면 IOException으로 터졌다.
+     * 정렬·해시 입력 모두 파일명이 아니라 {@code dir} 기준 상대 경로
+     * 문자열을 쓴다 — 그래야 {@code sources/gen-00.java}처럼 이름이
+     * 겹칠 수 있는 하위 파일도 구분되고, 디렉터리 구조 자체의 드리프트
+     * (파일이 엉뚱한 하위 폴더로 옮겨지는 것)도 해시에 반영된다.
+     * 경로 구분자를 "/"로 정규화하는 이유는 이 산출물이 다른 운영체제
+     * 에서 다시 만들어 대조돼야 하기 때문이다(R1) — Windows에서
+     * {@code Path::toString}은 "\"를 쓴다.
+     */
     private static String digestOf(Path dir) {
         try {
             MessageDigest md = MessageDigest.getInstance("SHA-256");
-            try (var files = Files.list(dir)) {
-                files.sorted(Comparator.comparing(Path::getFileName))
+            try (var files = Files.walk(dir)) {
+                files.filter(Files::isRegularFile)
+                        .sorted(Comparator.comparing(p -> relativePath(dir, p)))
                         .forEach(p -> {
                             try {
                                 // 반드시 UTF-8을 명시한다. 플랫폼 기본 문자셋에
                                 // 맡기면 같은 번들이 기계마다 다른 해시를 낸다 —
                                 // 바이트 동일성이 이 산출물의 존재 이유다.
-                                md.update(p.getFileName().toString()
+                                md.update(relativePath(dir, p)
                                         .getBytes(StandardCharsets.UTF_8));
                                 md.update(Files.readAllBytes(p));
                             } catch (IOException e) {
@@ -160,6 +175,11 @@ public final class RecordCommand {
         } catch (Exception e) {
             throw new IllegalStateException("번들 해시를 낼 수 없다: " + dir, e);
         }
+    }
+
+    /** {@code base} 기준 상대 경로를 "/" 구분자로 정규화한 문자열로 낸다. */
+    private static String relativePath(Path base, Path p) {
+        return base.relativize(p).toString().replace('\\', '/');
     }
 
     private static void deleteRecursively(Path dir) {

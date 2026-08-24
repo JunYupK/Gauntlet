@@ -432,4 +432,47 @@ class RecordStoreTest {
         assertEquals(0.63, store.holdoutOf(6), 1e-9,
                 "승격한 시도가 둘이면 마지막 승격의 홀드아웃을 읽어야 한다");
     }
+
+    // --- acceptedSourceOf: 화면 4가 "이 세대의 코드"로 보여줄 것은 채택된 쪽이다 ---
+
+    @Test
+    void 채택된_시도의_소스를_고른다(@TempDir Path tmp) {
+        RecordStore store = new RecordStore(tmp);
+        store.saveGateReport(2, 1, "class 반려된놈 {}",
+                new GateReport("Gen02Bot", false, "G4", "예외를 던졌다", List.of()));
+        store.saveGateReport(2, 2, "class 채택된놈 {}",
+                new GateReport("Gen02Bot", true, null, "", List.of()));
+
+        assertEquals("class 채택된놈 {}", store.acceptedSourceOf(2).orElseThrow());
+    }
+
+    @Test
+    void 채택된_시도가_없으면_비어있다(@TempDir Path tmp) {
+        RecordStore store = new RecordStore(tmp);
+        store.saveGateReport(2, 1, "class 반려된놈 {}",
+                new GateReport("Gen02Bot", false, "G4", "예외를 던졌다", List.of()));
+
+        assertTrue(store.acceptedSourceOf(2).isEmpty(),
+                "반려만 있는 세대는 채택된 소스가 없어야 한다");
+    }
+
+    /**
+     * (보강) 위 두 테스트는 채택된 시도가 항상 디스크상 "마지막" 시도이기도
+     * 하다 — verdict를 전혀 안 보고 "가장 나중 시도의 bot.java를 그냥
+     * 돌려준다"로 구현해도 둘 다 통과한다(Task 1이 겪은 것과 같은 결함
+     * 모양이다). 순서를 뒤집어 채택된 쪽이 먼저 오고 반려가 나중에 오게
+     * 만들어야, "마지막 시도"와 "채택된 시도"가 실제로 갈리는 상황에서
+     * verdict 필터링이 진짜로 동작하는지 드러난다.
+     */
+    @Test
+    void 나중_시도가_반려여도_먼저_채택된_소스를_고른다(@TempDir Path tmp) {
+        RecordStore store = new RecordStore(tmp);
+        store.saveGateReport(3, 1, "class 채택된놈 {}",
+                new GateReport("Gen03Bot", true, null, "", List.of()));
+        store.saveGateReport(3, 2, "class 반려된놈 {}",
+                new GateReport("Gen03Bot", false, "G4", "예외를 던졌다", List.of()));
+
+        assertEquals("class 채택된놈 {}", store.acceptedSourceOf(3).orElseThrow(),
+                "마지막 시도만 보면 반려된 소스를 골랐을 것이다 — verdict를 걸러야 한다");
+    }
 }

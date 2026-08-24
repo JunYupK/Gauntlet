@@ -1859,6 +1859,107 @@ NaN은 그 둘을 섞지 않는다.
 
 ---
 
+### D75. 계획 2 태스크 3 — 세대별 채택 소스를 번들에 싣는다
+
+화면 4("이번 세대는 무엇을 배웠나")가 읽을 것이 아무것도 없었다. 스펙
+§8.4는 `sources/`에 세대별 `bot.java` 원문과 직전 세대 대비 diff를
+두라고 하는데, 그 둘 중 어느 것도 번들에 없었다.
+
+**diff는 백엔드가 만들지 않는다 — 브리프의 설계 판정을 그대로 따랐다.**
+사유는 세 가지다: (a) diff는 하네스가 판정한 수치가 아니라 두 텍스트의
+표현이라 R1이 "프론트가 재계산하면 안 되는 값"에 넣을 이유가 없다,
+(b) 자바로 LCS diff를 손으로 짜면 검증되지 않은 알고리즘이 번들의
+바이트 동일성 경로(`record --verify`)에 들어온다, (c) 프론트엔드에는
+이미 검증된 diff 라이브러리가 있다. **이 판정의 비용은 명시적으로
+남긴다**: diff 결과 자체는 `record --verify`의 대조 범위 밖에 있다 —
+대신 원문 둘(`sources/gen-NN.java`)은 범위 안에 있고, 원문이 같으면
+diff도 같으므로 원문 쪽 바이트 동일성만 지키면 된다.
+
+`RecordStore.acceptedSourceOf(int generation)`을 추가했다: 그 세대의
+`historyOf`를 순회하며 `verdict()`가 `"REJECTED"`가 아닌 첫 시도의
+`bot.java`를 읽어 돌려주고, 그런 시도가 없으면 빈 `Optional`이다.
+반려된 시도의 소스는 지우지 않는다(BRIEF §8) — 여기서 "고르지 않을
+뿐"이고, 반려 이력 자체는 화면 3(루프 타임라인)의 소관이다.
+
+`SourceBundle.write(List<Bot>, RecordStore, Path)`를 새로 만들어
+세대마다 `sources/gen-NN.java`(있을 때만)와 `sources/index.json`
+(`generation`·`botName`·`available`·`file` 필드, 순서는 세대 순)을
+쓴다. 소스가 없는 세대에 빈 파일을 만들지 않는다 — 만들면 화면이
+"코드가 비어 있다"와 "기록이 없다"를 구분할 방법이 없어진다.
+`BundleBuilder.writeJson`을 public이 아니라 package-private으로만
+낮췄다 — pretty printer·MAPPER 설정을 우회하는 다른 호출자가 생기지
+않게 하려는 것이다.
+
+**브리프의 테스트로는 못 잡는 구멍 둘 — Task 1이 겪은 것과 같은 모양.**
+
+1. `채택된_시도의_소스를_고른다`은 반려된 attempt-1 다음에 채택된
+   attempt-2를 저장하고 채택된 쪽이 나온다고만 확인한다. 이 순서에서는
+   "채택된 시도를 고른다"와 "가장 마지막 시도를 verdict 상관없이 그냥
+   돌려준다"가 똑같은 답을 낸다 — 채택된 쪽이 우연히 디스크상 마지막이기
+   때문이다. 순서를 뒤집어(채택된 attempt-1, 반려된 attempt-2)
+   `나중_시도가_반려여도_먼저_채택된_소스를_고른다`를 추가했다 — 이
+   케이스에서는 "마지막 시도"와 "채택된 시도"가 서로 다른 답을 낸다.
+   실제로 "항상 마지막 시도를 verdict 무시하고 돌려준다"로 구현을
+   일부러 바꿔 확인해보니, 브리프의 `채택된_시도의_소스를_고른다`는
+   그대로 통과하는데(정확히 브리프가 경고한 그 구멍) 새로 추가한
+   `나중_시도가_반려여도_먼저_채택된_소스를_고른다`는 실패했다 — 이
+   보강 테스트가 실제로 그 구멍을 닫는다는 것을 직접 증명한 뒤 원래
+   구현(`REJECTED` 가드 유지)으로 되돌렸다.
+2. `인덱스는_세대_순서를_그대로_따른다`는 세 세대 모두에 같은
+   `new Gen00Bot()` 인스턴스를 넣는다 — `botName`이 항상 "Gen00Bot"으로
+   같으므로 "세대별로 올바른 봇을 찾아 이름을 쓴다"와 "인덱스 0의 봇
+   이름을 항상 쓴다"를 구분하지 못한다(`generation` 필드만 보면 두
+   구현이 똑같이 통과한다). 이름을 생성자로 지정할 수 있는 테스트
+   전용 `NamedBot`(`BundleBuilderTest`의 같은 패턴)을 만들어 세대마다
+   다른 이름을 주고, `인덱스의_botName은_해당_세대의_봇_이름을_따른다`로
+   botName이 세대별로 정확히 대응하는지 확인했다. 실제로
+   `generations.get(gen).name()`을 `generations.get(0).name())`으로
+   바꿔(항상 0번째 봇 이름만 쓰도록) 확인해보니, 브리프의
+   `인덱스는_세대_순서를_그대로_따른다`는 그대로 통과하고(`generation`
+   필드만 보므로) 새로 추가한
+   `인덱스의_botName은_해당_세대의_봇_이름을_따른다`만 실패했다 — 역시
+   보강 테스트가 실제로 그 구멍을 닫는다는 것을 직접 증명한 뒤 원복했다.
+   브리프의 원래 케이스는 지우지 않고 나란히 남겼다.
+
+**부수적으로 발견하고 고친 버그 — 브리프 범위 밖.** `sources/`가
+`outputDir` 아래 하위 디렉터리로 처음 들어오면서 `arena-api`의
+`RecordCommand.digestOf`가 깨졌다: 그 메서드는 `Files.list`(비재귀)로
+`outputDir` 바로 밑만 나열한 뒤 각 항목에 `Files.readAllBytes`를
+그대로 먹였는데, `sources/`가 디렉터리라서 IOException으로 터졌다.
+`./gradlew test`를 처음 돌렸을 때 `RecordCommandTest`의 두 테스트
+(`verify는_두_번_돌려_해시가_같으면_0을_반환한다`,
+`gallery_json의_matchId를_바꾸면_verify가_1을_반환한다`)가 정확히
+이 경로로 실패하며 드러났다. `Files.walk` + `Files::isRegularFile`
+필터로 재귀 나열하도록 고치고, 정렬·해시 입력 키를 파일명에서
+`outputDir` 기준 상대 경로(구분자 "/"로 정규화 — Windows의 `\`가
+같은 트리를 다른 해시로 만들지 않도록)로 바꿨다. 이 수정이 없었다면
+Task 3은 `./gradlew test`도 `record -Pverify`도 통과할 수 없었다 —
+브리프의 "Files" 목록에는 없지만 R1(재현 가능성)을 지키려면 반드시
+같이 고쳐야 하는 자리였다.
+
+**검증 순서.** ①`RecordStoreTest`에 브리프 테스트 2개 + 보강 1개를
+먼저 붙이고 `--tests 'arena.tournament.RecordStoreTest'`로
+`cannot find symbol: method acceptedSourceOf(int)` 컴파일 실패 확인 →
+②`acceptedSourceOf`/`read` 구현, 3개 전부 PASS → ③`SourceBundleTest`를
+브리프 테스트 3개 + 보강 1개로 새로 작성하고 `cannot find symbol: class
+SourceBundle` 컴파일 실패 확인(브리프 스니펫에 `arena.gate.GateReport`
+import가 빠져 있어 먼저 추가해야 했다) → ④`SourceBundle` 구현 +
+`BundleBuilder.writeJson` package-private 전환, 4개 전부 PASS →
+⑤`BundleBuilder.build`에 `SourceBundle.write` 배선 → ⑥전체
+`./gradlew test`에서 `RecordCommandTest` 2개 실패 발견 → `digestOf`를
+재귀 나열로 고치고 재실행, 전체 GREEN.
+
+전체 `./gradlew test` — 225개 GREEN(D74 이후 218 + 이번 7개 신규:
+`RecordStoreTest` 3, `SourceBundleTest` 4), 실패·에러·스킵 0. 저장소
+전체의 XML 테스트 리포트를 직접 합산해 확인했다(`tests="225"
+failures="0"`). `./gradlew record` → `ARENA_EXIT_CODE=0`,
+`web/public/data/sources/index.json`이 실제로 생성됨을 확인(이
+저장소의 `records/`에는 아직 채택된 시도가 없어 `available: false`).
+`./gradlew record -Pverify` → `ARENA_EXIT_CODE=0` — `sources/`가 섞인
+새 번들 구조에서도 R1이 유지된다.
+
+---
+
 ## 다음 단계
 
 - [x] 스펙 문서 작성 및 자체 검토
