@@ -103,7 +103,7 @@ public final class RecordCommand {
                 Seeds.ROUND_ROBIN,
                 Seeds.WIDTH, Seeds.HEIGHT,
                 new RecordStore(recordsDir),
-                outputDir);
+                outputDir, false);
     }
 
     /**

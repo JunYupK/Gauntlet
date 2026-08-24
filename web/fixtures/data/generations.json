@@ -1,0 +1,122 @@
+[
+  {
+    "generation" : 0,
+    "botName" : "Demo00Bot",
+    "avgSurvivalTurns" : 34.25,
+    "occupancy" : 0.03935185185185185,
+    "suicideRate" : 0.0,
+    "scoreRate" : 0.16666666666666666,
+    "holdoutScoreRate" : 0.6,
+    "attempts" : 1
+  },
+  {
+    "generation" : 1,
+    "botName" : "Demo01Bot",
+    "avgSurvivalTurns" : 139.58333333333334,
+    "occupancy" : 0.1562962962962963,
+    "suicideRate" : 0.0,
+    "scoreRate" : 0.125,
+    "holdoutScoreRate" : 0.6,
+    "attempts" : 2
+  },
+  {
+    "generation" : 2,
+    "botName" : "Demo02Bot",
+    "avgSurvivalTurns" : 168.91666666666666,
+    "occupancy" : 0.18935185185185185,
+    "suicideRate" : 0.0,
+    "scoreRate" : 0.5833333333333334,
+    "holdoutScoreRate" : 0.6099999999999999,
+    "attempts" : 3
+  },
+  {
+    "generation" : 3,
+    "botName" : "Demo03Bot",
+    "avgSurvivalTurns" : 156.91666666666666,
+    "occupancy" : 0.17592592592592593,
+    "suicideRate" : 0.0,
+    "scoreRate" : 0.5416666666666666,
+    "holdoutScoreRate" : 0.6399999999999999,
+    "attempts" : 1
+  },
+  {
+    "generation" : 4,
+    "botName" : "Demo04Bot",
+    "avgSurvivalTurns" : 184.66666666666666,
+    "occupancy" : 0.20675925925925928,
+    "suicideRate" : 0.0,
+    "scoreRate" : 0.5,
+    "holdoutScoreRate" : 0.6699999999999999,
+    "attempts" : 2
+  },
+  {
+    "generation" : 5,
+    "botName" : "Demo05Bot",
+    "avgSurvivalTurns" : 201.5,
+    "occupancy" : 0.22537037037037033,
+    "suicideRate" : 0.0,
+    "scoreRate" : 0.4166666666666667,
+    "holdoutScoreRate" : 0.7,
+    "attempts" : 3
+  },
+  {
+    "generation" : 6,
+    "botName" : "Demo06Bot",
+    "avgSurvivalTurns" : 229.83333333333334,
+    "occupancy" : 0.25666666666666665,
+    "suicideRate" : 0.0,
+    "scoreRate" : 0.2916666666666667,
+    "holdoutScoreRate" : 0.73,
+    "attempts" : 1
+  },
+  {
+    "generation" : 7,
+    "botName" : "Demo07Bot",
+    "avgSurvivalTurns" : 279.0833333333333,
+    "occupancy" : 0.3113888888888889,
+    "suicideRate" : 0.0,
+    "scoreRate" : 0.25,
+    "holdoutScoreRate" : 0.7599999999999999,
+    "attempts" : 2
+  },
+  {
+    "generation" : 8,
+    "botName" : "Demo08Bot",
+    "avgSurvivalTurns" : 281.0,
+    "occupancy" : 0.3135185185185185,
+    "suicideRate" : 0.0,
+    "scoreRate" : 0.25,
+    "holdoutScoreRate" : 0.7899999999999999,
+    "attempts" : 3
+  },
+  {
+    "generation" : 9,
+    "botName" : "Demo09Bot",
+    "avgSurvivalTurns" : 279.75,
+    "occupancy" : 0.31212962962962965,
+    "suicideRate" : 0.0,
+    "scoreRate" : 0.25,
+    "holdoutScoreRate" : 0.82,
+    "attempts" : 1
+  },
+  {
+    "generation" : 10,
+    "botName" : "Demo10Bot",
+    "avgSurvivalTurns" : 279.75,
+    "occupancy" : 0.31212962962962965,
+    "suicideRate" : 0.0,
+    "scoreRate" : 0.25,
+    "holdoutScoreRate" : 0.8499999999999999,
+    "attempts" : 2
+  },
+  {
+    "generation" : 11,
+    "botName" : "Demo11Bot",
+    "avgSurvivalTurns" : 279.75,
+    "occupancy" : 0.31212962962962965,
+    "suicideRate" : 0.0,
+    "scoreRate" : 0.25,
+    "holdoutScoreRate" : 0.8799999999999999,
+    "attempts" : 3
+  }
+]

@@ -27,7 +27,7 @@ class BundleBuilderTest {
     private void build(Path out, Path records) {
         List<Bot> generations = List.of(new Gen00Bot(), new RandomBot(), new WallAvoidBot());
         BundleBuilder.build(generations, new WallAvoidBot(), 1L, SEEDS, SEEDS, 30, 30,
-                new RecordStore(records), out);
+                new RecordStore(records), out, false);
     }
 
     /**
@@ -48,7 +48,7 @@ class BundleBuilderTest {
 
         IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
                 () -> BundleBuilder.build(generations, new WallAvoidBot(), 1L,
-                        List.of(), SEEDS, 30, 30, new RecordStore(tmp.resolve("records")), out));
+                        List.of(), SEEDS, 30, 30, new RecordStore(tmp.resolve("records")), out, false));
 
         assertTrue(e.getMessage().contains("judgingSeeds"),
                 "어느 인자가 잘못됐는지 메시지에 없다: " + e.getMessage());
@@ -64,7 +64,7 @@ class BundleBuilderTest {
         assertThrows(IllegalArgumentException.class,
                 () -> BundleBuilder.build(generations, new WallAvoidBot(), 1L,
                         List.of(1L, 1L), SEEDS, 30, 30,
-                        new RecordStore(tmp.resolve("records")), tmp.resolve("data")));
+                        new RecordStore(tmp.resolve("records")), tmp.resolve("data"), false));
     }
 
     @Test
@@ -188,7 +188,7 @@ class BundleBuilderTest {
         Bot champion = new NamedBot("WallAvoidBot", new Gen00Bot());
 
         BundleBuilder.build(generations, champion, 1L, SEEDS, SEEDS, 30, 30,
-                new RecordStore(tmp.resolve("records")), out);
+                new RecordStore(tmp.resolve("records")), out, false);
 
         ObjectMapper mapper = new ObjectMapper();
         GenerationStat[] stats = mapper.readValue(
@@ -262,7 +262,7 @@ class BundleBuilderTest {
         List<Bot> generations = List.of(new Gen00Bot());
         assertThrows(IllegalArgumentException.class, () ->
                 BundleBuilder.build(generations, new Gen00Bot(), 1L, SEEDS, null, 30, 30,
-                        new RecordStore(tmp.resolve("records")), tmp.resolve("data")));
+                        new RecordStore(tmp.resolve("records")), tmp.resolve("data"), false));
     }
 
     @Test
@@ -270,7 +270,7 @@ class BundleBuilderTest {
         List<Bot> generations = List.of(new Gen00Bot());
         assertThrows(IllegalArgumentException.class, () ->
                 BundleBuilder.build(generations, new Gen00Bot(), 1L, SEEDS, List.of(), 30, 30,
-                        new RecordStore(tmp.resolve("records")), tmp.resolve("data")));
+                        new RecordStore(tmp.resolve("records")), tmp.resolve("data"), false));
     }
 
     // --- holdoutScoreRate: 화면 6이 과적합 격차를 그리려면 번들에 실려야 한다 ---
@@ -284,7 +284,7 @@ class BundleBuilderTest {
                 "Gen00Bot", "Gen00Bot", true, 0.72, 0.60, 66, 12, 22, 0.58, List.of()));
 
         BundleBuilder.build(List.of(new Gen00Bot()), new Gen00Bot(),
-                1L, List.of(1L, 2L), List.of(1L, 2L), 30, 30, store, out);
+                1L, List.of(1L, 2L), List.of(1L, 2L), 30, 30, store, out, false);
 
         List<GenerationStat> stats = new ObjectMapper().readValue(
                 out.resolve("generations.json").toFile(),
@@ -298,7 +298,7 @@ class BundleBuilderTest {
         Path out = tmp.resolve("data");
         BundleBuilder.build(List.of(new Gen00Bot()), new Gen00Bot(),
                 1L, List.of(1L, 2L), List.of(1L, 2L), 30, 30,
-                new RecordStore(tmp.resolve("records")), out);
+                new RecordStore(tmp.resolve("records")), out, false);
 
         List<GenerationStat> stats = new ObjectMapper().readValue(
                 out.resolve("generations.json").toFile(),
@@ -314,7 +314,7 @@ class BundleBuilderTest {
         Path out = tmp.resolve("data");
         BundleBuilder.build(List.of(new Gen00Bot()), new Gen00Bot(),
                 1L, List.of(1L, 2L), List.of(1L, 2L), 30, 30,
-                new RecordStore(tmp.resolve("records")), out);
+                new RecordStore(tmp.resolve("records")), out, false);
 
         ObjectMapper mapper = new ObjectMapper();
         List<Replay> gallery = mapper.readValue(out.resolve("gallery.json").toFile(),
@@ -366,7 +366,7 @@ class BundleBuilderTest {
         Path out = tmp.resolve("data");
         BundleBuilder.build(List.of(new Gen00Bot()), new Gen00Bot(),
                 1L, List.of(1L, 2L), List.of(1L, 2L), 30, 30,
-                new RecordStore(tmp.resolve("records")), out);
+                new RecordStore(tmp.resolve("records")), out, false);
 
         ObjectMapper mapper = new ObjectMapper();
         Replay r = mapper.readValue(out.resolve("gallery.json").toFile(),

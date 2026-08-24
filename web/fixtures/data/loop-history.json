@@ -1,0 +1,218 @@
+{
+  "0" : [
+    {
+      "generation" : 0,
+      "attempt" : 1,
+      "verdict" : "PROMOTED",
+      "stage" : "CHAMPIONSHIP",
+      "failedGate" : null,
+      "detail" : "승점 승률 0.60 (기준 0.60)"
+    }
+  ],
+  "1" : [
+    {
+      "generation" : 1,
+      "attempt" : 1,
+      "verdict" : "REJECTED",
+      "stage" : "GATE",
+      "failedGate" : "G4",
+      "detail" : "표본 국면 중 하나에서 예외를 던졌다 (gen-1/attempt-1)"
+    },
+    {
+      "generation" : 1,
+      "attempt" : 2,
+      "verdict" : "PROMOTED",
+      "stage" : "CHAMPIONSHIP",
+      "failedGate" : null,
+      "detail" : "승점 승률 0.63 (기준 0.60)"
+    }
+  ],
+  "2" : [
+    {
+      "generation" : 2,
+      "attempt" : 1,
+      "verdict" : "REJECTED",
+      "stage" : "GATE",
+      "failedGate" : "G5",
+      "detail" : "같은 국면을 반복 호출했을 때 다른 방향이 나왔다 — 결정론 위반 (gen-2/attempt-1)"
+    },
+    {
+      "generation" : 2,
+      "attempt" : 2,
+      "verdict" : "REJECTED",
+      "stage" : "GATE",
+      "failedGate" : "G6",
+      "detail" : "p99 6.8ms — 예산 5ms를 초과했다 (gen-2/attempt-2)"
+    },
+    {
+      "generation" : 2,
+      "attempt" : 3,
+      "verdict" : "PROMOTED",
+      "stage" : "CHAMPIONSHIP",
+      "failedGate" : null,
+      "detail" : "승점 승률 0.66 (기준 0.60)"
+    }
+  ],
+  "3" : [
+    {
+      "generation" : 3,
+      "attempt" : 1,
+      "verdict" : "PROMOTED",
+      "stage" : "CHAMPIONSHIP",
+      "failedGate" : null,
+      "detail" : "승점 승률 0.69 (기준 0.60)"
+    }
+  ],
+  "4" : [
+    {
+      "generation" : 4,
+      "attempt" : 1,
+      "verdict" : "REJECTED",
+      "stage" : "GATE",
+      "failedGate" : "G7",
+      "detail" : "베이스라인 상대로 패배가 있었다 (gen-4/attempt-1)"
+    },
+    {
+      "generation" : 4,
+      "attempt" : 2,
+      "verdict" : "PROMOTED",
+      "stage" : "CHAMPIONSHIP",
+      "failedGate" : null,
+      "detail" : "승점 승률 0.72 (기준 0.60)"
+    }
+  ],
+  "5" : [
+    {
+      "generation" : 5,
+      "attempt" : 1,
+      "verdict" : "REJECTED",
+      "stage" : "GATE",
+      "failedGate" : "G2",
+      "detail" : "인스턴스 필드가 있다 — 무상태가 아니다 (gen-5/attempt-1)"
+    },
+    {
+      "generation" : 5,
+      "attempt" : 2,
+      "verdict" : "REJECTED",
+      "stage" : "GATE",
+      "failedGate" : "G3",
+      "detail" : "금지된 API를 호출했다: java.lang.System.nanoTime (gen-5/attempt-2)"
+    },
+    {
+      "generation" : 5,
+      "attempt" : 3,
+      "verdict" : "PROMOTED",
+      "stage" : "CHAMPIONSHIP",
+      "failedGate" : null,
+      "detail" : "승점 승률 0.75 (기준 0.60)"
+    }
+  ],
+  "6" : [
+    {
+      "generation" : 6,
+      "attempt" : 1,
+      "verdict" : "PROMOTED",
+      "stage" : "CHAMPIONSHIP",
+      "failedGate" : null,
+      "detail" : "승점 승률 0.78 (기준 0.60)"
+    }
+  ],
+  "7" : [
+    {
+      "generation" : 7,
+      "attempt" : 1,
+      "verdict" : "REJECTED",
+      "stage" : "GATE",
+      "failedGate" : "G4",
+      "detail" : "표본 국면 중 하나에서 예외를 던졌다 (gen-7/attempt-1)"
+    },
+    {
+      "generation" : 7,
+      "attempt" : 2,
+      "verdict" : "PROMOTED",
+      "stage" : "CHAMPIONSHIP",
+      "failedGate" : null,
+      "detail" : "승점 승률 0.81 (기준 0.60)"
+    }
+  ],
+  "8" : [
+    {
+      "generation" : 8,
+      "attempt" : 1,
+      "verdict" : "REJECTED",
+      "stage" : "GATE",
+      "failedGate" : "G5",
+      "detail" : "같은 국면을 반복 호출했을 때 다른 방향이 나왔다 — 결정론 위반 (gen-8/attempt-1)"
+    },
+    {
+      "generation" : 8,
+      "attempt" : 2,
+      "verdict" : "REJECTED",
+      "stage" : "GATE",
+      "failedGate" : "G6",
+      "detail" : "p99 6.8ms — 예산 5ms를 초과했다 (gen-8/attempt-2)"
+    },
+    {
+      "generation" : 8,
+      "attempt" : 3,
+      "verdict" : "PROMOTED",
+      "stage" : "CHAMPIONSHIP",
+      "failedGate" : null,
+      "detail" : "승점 승률 0.84 (기준 0.60)"
+    }
+  ],
+  "9" : [
+    {
+      "generation" : 9,
+      "attempt" : 1,
+      "verdict" : "PROMOTED",
+      "stage" : "CHAMPIONSHIP",
+      "failedGate" : null,
+      "detail" : "승점 승률 0.87 (기준 0.60)"
+    }
+  ],
+  "10" : [
+    {
+      "generation" : 10,
+      "attempt" : 1,
+      "verdict" : "REJECTED",
+      "stage" : "GATE",
+      "failedGate" : "G7",
+      "detail" : "베이스라인 상대로 패배가 있었다 (gen-10/attempt-1)"
+    },
+    {
+      "generation" : 10,
+      "attempt" : 2,
+      "verdict" : "PROMOTED",
+      "stage" : "CHAMPIONSHIP",
+      "failedGate" : null,
+      "detail" : "승점 승률 0.90 (기준 0.60)"
+    }
+  ],
+  "11" : [
+    {
+      "generation" : 11,
+      "attempt" : 1,
+      "verdict" : "REJECTED",
+      "stage" : "GATE",
+      "failedGate" : "G2",
+      "detail" : "인스턴스 필드가 있다 — 무상태가 아니다 (gen-11/attempt-1)"
+    },
+    {
+      "generation" : 11,
+      "attempt" : 2,
+      "verdict" : "REJECTED",
+      "stage" : "GATE",
+      "failedGate" : "G3",
+      "detail" : "금지된 API를 호출했다: java.lang.System.nanoTime (gen-11/attempt-2)"
+    },
+    {
+      "generation" : 11,
+      "attempt" : 3,
+      "verdict" : "PROMOTED",
+      "stage" : "CHAMPIONSHIP",
+      "failedGate" : null,
+      "detail" : "승점 승률 0.93 (기준 0.60)"
+    }
+  ]
+}
