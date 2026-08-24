@@ -367,4 +367,31 @@ class RecordStoreTest {
         assertFalse(Files.exists(tmp.resolve("gen-04/attempt-2")),
                 "읽기 전용이어야 할 historyOf가 빈 시도 디렉터리를 만들었다");
     }
+
+    // --- holdoutOf: 승격한 시도의 홀드아웃 승률만 화면 6이 읽을 수 있게 노출한다 ---
+
+    @Test
+    void 승격한_시도의_홀드아웃_승률을_읽는다(@TempDir Path tmp) {
+        RecordStore store = new RecordStore(tmp);
+        store.saveChallengeReport(3, 1, new ChallengeReport(
+                "Gen03Bot", "Gen02Bot", false, 0.48, 0.60, 20, 8, 22, Double.NaN, List.of()));
+        store.saveChallengeReport(3, 2, new ChallengeReport(
+                "Gen03Bot", "Gen02Bot", true, 0.71, 0.60, 65, 12, 23, 0.63, List.of()));
+
+        assertEquals(0.63, store.holdoutOf(3), 1e-9);
+    }
+
+    @Test
+    void 승격한_시도가_없으면_홀드아웃은_NaN이다(@TempDir Path tmp) {
+        RecordStore store = new RecordStore(tmp);
+        store.saveChallengeReport(4, 1, new ChallengeReport(
+                "Gen04Bot", "Gen03Bot", false, 0.48, 0.60, 20, 8, 22, Double.NaN, List.of()));
+
+        assertTrue(Double.isNaN(store.holdoutOf(4)), "반려만 있는 세대의 홀드아웃은 NaN이어야 한다");
+    }
+
+    @Test
+    void 기록이_아예_없는_세대의_홀드아웃도_NaN이다(@TempDir Path tmp) {
+        assertTrue(Double.isNaN(new RecordStore(tmp).holdoutOf(9)));
+    }
 }

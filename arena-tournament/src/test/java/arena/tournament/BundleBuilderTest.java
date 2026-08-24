@@ -6,6 +6,7 @@ import arena.bots.baseline.WallAvoidBot;
 import arena.bots.gen.Gen00Bot;
 import arena.core.Direction;
 import arena.core.GameView;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
@@ -267,6 +268,40 @@ class BundleBuilderTest {
         assertThrows(IllegalArgumentException.class, () ->
                 BundleBuilder.build(generations, new Gen00Bot(), 1L, SEEDS, List.of(), 30, 30,
                         new RecordStore(tmp.resolve("records")), tmp.resolve("data")));
+    }
+
+    // --- holdoutScoreRate: 화면 6이 과적합 격차를 그리려면 번들에 실려야 한다 ---
+
+    @Test
+    void 세대_통계에_홀드아웃_승률이_실린다(@TempDir Path tmp) throws Exception {
+        Path records = tmp.resolve("records");
+        Path out = tmp.resolve("data");
+        RecordStore store = new RecordStore(records);
+        store.saveChallengeReport(0, 1, new ChallengeReport(
+                "Gen00Bot", "Gen00Bot", true, 0.72, 0.60, 66, 12, 22, 0.58, List.of()));
+
+        BundleBuilder.build(List.of(new Gen00Bot()), new Gen00Bot(),
+                1L, List.of(1L, 2L), List.of(1L, 2L), 30, 30, store, out);
+
+        List<GenerationStat> stats = new ObjectMapper().readValue(
+                out.resolve("generations.json").toFile(),
+                new TypeReference<List<GenerationStat>>() {});
+
+        assertEquals(0.58, stats.get(0).holdoutScoreRate(), 1e-9);
+    }
+
+    @Test
+    void 승격_기록이_없는_세대의_홀드아웃은_NaN으로_실린다(@TempDir Path tmp) throws Exception {
+        Path out = tmp.resolve("data");
+        BundleBuilder.build(List.of(new Gen00Bot()), new Gen00Bot(),
+                1L, List.of(1L, 2L), List.of(1L, 2L), 30, 30,
+                new RecordStore(tmp.resolve("records")), out);
+
+        List<GenerationStat> stats = new ObjectMapper().readValue(
+                out.resolve("generations.json").toFile(),
+                new TypeReference<List<GenerationStat>>() {});
+
+        assertTrue(Double.isNaN(stats.get(0).holdoutScoreRate()));
     }
 
     /** 이름을 생성자로 지정할 수 있는 래퍼. 이름 충돌 시나리오 전용. */

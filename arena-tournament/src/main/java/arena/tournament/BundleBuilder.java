@@ -178,6 +178,7 @@ public final class BundleBuilder {
                     totalOccupancy / n,
                     totalSuicide / n,
                     Standing.of(replays, GEN_ID).scoreRate(),
+                    store.holdoutOf(gen),
                     store.nextAttempt(gen) - 1));
         }
         return stats;

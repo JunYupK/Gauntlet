@@ -209,6 +209,29 @@ public final class RecordStore {
         return history;
     }
 
+    /**
+     * 세대의 홀드아웃 승률. 승격한 시도의 값이며, 승격한 시도가 없거나
+     * 기록이 없으면 {@link Double#NaN}이다.
+     *
+     * 승격 시도는 세대당 최대 하나다(승격하는 순간 그 세대가 끝난다).
+     * 그래도 마지막 것을 취하도록 쓴 이유는, 기록 디렉터리가 사람이
+     * 손대는 곳이라 둘이 들어있는 상태를 예외가 아니라 "가장 나중 것이
+     * 맞다"로 처리하는 편이 안전하기 때문이다 — 여기서 터지면 번들
+     * 생성 전체가 하네스 오류(3)로 죽는다.
+     */
+    public double holdoutOf(int generation) {
+        double holdout = Double.NaN;
+
+        for (int attempt = 1; attempt < nextAttempt(generation); attempt++) {
+            Path championship = attemptPath(generation, attempt).resolve("championship.json");
+            if (!Files.exists(championship)) continue;
+
+            ChallengeReport r = readJson(championship, ChallengeReport.class);
+            if (r.promoted()) holdout = r.holdoutScoreRate();
+        }
+        return holdout;
+    }
+
     private Path generationDir(int generation) {
         return root.resolve(String.format("gen-%02d", generation));
     }

@@ -1751,6 +1751,52 @@ generation)`에 `Locale.ROOT`가 없다. D71-⑤와 같은 부류이되 더 나�
 
 ---
 
+### D73. 계획 2 태스크 1 — 세대별 홀드아웃 승률을 번들에 싣는다
+
+화면 6은 "심사 승률과 홀드아웃 승률의 격차"를 그린다. 스펙 §6이 홀드아웃을
+그 목적("격차가 시드 과적합의 신호")으로만 두기 때문이다. 그런데
+`holdoutScoreRate`는 승격 순간 `Championship.judge`가 채우고
+`RecordStore.saveChallengeReport`가 `records/gen-NN/attempt-M/championship.json`
+안에 써 넣을 뿐, 번들 어디에도 나오지 않았다 — 화면이 그릴 데이터가
+없었다.
+
+`RecordStore.holdoutOf(int generation)`을 추가했다. `historyOf`가 이미
+`championship.json`을 `ChallengeReport`로 읽는 방식을 그대로 따라, 해당
+세대의 시도를 1부터 순서대로 훑으며 승격(`promoted() == true`)한
+시도의 `holdoutScoreRate()`를 취한다. 승격 시도는 세대당 최대 하나지만
+(승격하는 순간 그 세대가 끝난다), 기록 디렉터리는 사람이 손대는 곳이라
+둘 이상 있는 상태를 예외로 죽이지 않고 "가장 나중 것이 맞다"로
+처리하도록 마지막 값을 남기는 루프를 그대로 뒀다 — 여기서 예외가 나면
+번들 생성 전체가 하네스 오류(3)로 죽는다.
+
+승격 시도가 하나도 없으면(반려만 있거나 기록 자체가 없으면) `Double.NaN`을
+돌려준다. **0으로 채우지 않은 이유는 "격차 없음"과 "아직 승격 못
+함"이 화면에서 구분돼야 하기 때문이다** — 0은 "홀드아웃에서 승률
+0%"라는 실측값처럼 보이지만, 실제로는 아직 잴 값 자체가 없는 상태다.
+NaN은 그 둘을 섞지 않는다.
+
+`GenerationStat`에 8번째 컴포넌트로 `holdoutScoreRate`를 추가하고
+(`scoreRate` 다음, `attempts` 앞), `BundleBuilder.buildStats`의
+`stats.add(...)`에 `store.holdoutOf(gen)` 한 줄을 끼워 넣어 채웠다.
+`GenerationStat`의 유일한 생성 지점이 `BundleBuilder.buildStats`
+하나뿐이라(레포 전체를 `new GenerationStat(` 로 훑어 확인) 브리프가
+경고한 "다른 픽스처가 생성자를 부르고 있으면 인자를 채운다" 상황은
+이번엔 나오지 않았다 — 고칠 다른 생성 지점이 없었다.
+
+**검증.** `RecordStoreTest`에 3개(승격한 시도의 홀드아웃을 읽는다 /
+승격이 없으면 NaN / 기록 자체가 없어도 NaN), `BundleBuilderTest`에 2개
+(번들에 실제로 실린다 / 승격 기록이 없는 세대는 NaN으로 실린다)를
+새로 붙였다. 먼저 `holdoutOf` 없이 컴파일 실패를 확인한 뒤 구현했고
+(`cannot find symbol: method holdoutOf(int)`), `BundleBuilder`에서
+`store.holdoutOf(gen)`을 `Double.NaN`으로 되돌려 `세대_통계에_홀드아웃_승률이_실린다`가
+정확히 실패하는지도 확인한 뒤 즉시 원복했다 — 실패하지 않았다면 그
+테스트는 아무것도 지키지 않는 것이었다.
+
+전체 `./gradlew test` — 213개 GREEN(D71 이후 208 + 이번 5), 실패·에러·스킵
+0. 저장소 전체의 XML 테스트 리포트 34개 파일을 직접 합산해 확인했다.
+
+---
+
 ## 다음 단계
 
 - [x] 스펙 문서 작성 및 자체 검토
