@@ -100,6 +100,7 @@ public final class BundleBuilder {
                 generations, finalChampion, judgingSeeds, width, height, store);
 
         writeJson(outputDir.resolve("gallery.json"), gallery);
+        writeJson(outputDir.resolve("diagnosis.json"), buildDiagnosis(gallery));
         writeJson(outputDir.resolve("generations.json"), stats);
         writeJson(outputDir.resolve("loop-history.json"), buildHistory(generations, store));
         writeJson(outputDir.resolve("roundrobin.json"),
@@ -128,6 +129,28 @@ public final class BundleBuilder {
                     seed, width, height));
         }
         return gallery;
+    }
+
+    /**
+     * 갤러리 경기의 진단. {@code gallery}를 그대로 순회하므로 순서와
+     * 개수가 필연적으로 같아진다 — 두 배열을 각각 만들어 "같은 순서일
+     * 것"을 약속으로 두면 언젠가 어긋난다.
+     *
+     * worstMoves의 limit 3은 화면이 쓰는 값이다. 화면 5가 "가장 나쁜 수
+     * 몇 개"를 짚어 보여주므로 전부 실을 이유가 없고, 전부 실으면
+     * 900턴짜리 경기에서 이 파일이 리플레이보다 커진다.
+     */
+    private static List<MatchDiagnosis> buildDiagnosis(List<Replay> gallery) {
+        List<MatchDiagnosis> diagnosis = new ArrayList<>();
+        for (Replay r : gallery) {
+            MatchMetrics m = LossAnalyzer.analyze(r);
+            diagnosis.add(new MatchDiagnosis(
+                    r.matchId(),
+                    m.reach(), m.loss(), m.occupancy(), m.suicideRate(),
+                    LossAnalyzer.worstMoves(r, 0, 3),
+                    LossAnalyzer.worstMoves(r, 1, 3)));
+        }
+        return diagnosis;
     }
 
     /**

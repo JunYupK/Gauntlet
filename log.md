@@ -1797,6 +1797,68 @@ NaN은 그 둘을 섞지 않는다.
 
 ---
 
+### D74. 계획 2 태스크 2 — 갤러리 경기의 턴별 진단을 번들에 싣는다
+
+화면 5는 "기계가 실수를 어떻게 짚었나"를 그린다 — 그 경기의 어느 턴이
+가장 나쁜 수였고 왜 나빴는지(`loss` = 최선 대비 잃은 공간). `LossAnalyzer`가
+이미 계산은 다 해 두고 있었는데(`analyze` → `MatchMetrics`, `worstMoves` →
+`List<MoveAnalysis>`) 번들에는 리플레이만 나가고 진단 수치가 없어서 그
+화면이 읽을 파일이 없었다. 이번 태스크는 계산을 새로 만들지 않고 이미
+있는 계산을 wire로 내보내기만 한다.
+
+`arena-tournament`에 `MatchDiagnosis` 레코드를 새로 만들었다
+(`matchId`, `reach`, `loss`, `occupancy`, `suicideRate`, `worstMoves0`,
+`worstMoves1`). `BundleBuilder.buildDiagnosis(List<Replay> gallery)`가
+`gallery`를 그대로 순회하며 `LossAnalyzer.analyze`/`worstMoves(limit=3)`을
+불러 채운다 — 갤러리 배열과 별도로 진단 배열을 만들지 않고 같은 순회에서
+같은 리스트를 소스로 삼았으므로, 순서와 개수가 "약속"이 아니라 코드
+구조로 강제된다. 그럼에도 `matchId`를 진단 원소마다 함께 실은 이유는
+화면 쪽에서 그 짝짓기를 검증할 수 있게 하려는 것이다 — 어느 배열이든
+언젠가 어긋날 수 있고, 어긋났을 때 인덱스만 믿으면 화면이 조용히 엉뚱한
+경기의 진단을 그린다.
+
+`MatchDiagnosis`의 javadoc에 턴 인덱스 규약 차이를 명시했다: `reach`·
+`loss`는 `MatchMetrics`의 배열을 그대로 내보내므로 0-based(리플레이의
+턴 1이 인덱스 0)이지만, `MoveAnalysis.turn()`은 1-based다. 두 규약이
+한 파일(`diagnosis.json`) 안에 섞여 나가므로 화면 쪽 소비 코드가 반드시
+구분해야 한다.
+
+**브리프의 테스트로는 못 잡는 구멍.** 브리프가 준 `진단_파일은_갤러리와_같은_순서로_짝지어진다`는
+픽스처가 세대 하나짜리라 gallery·diagnosis 둘 다 길이 1이다 — matchId를
+아예 무시하고 `gallery.get(0).matchId()`를 그대로 복사해 넣는 잘못된
+구현조차 이 테스트를 통과한다(원소가 하나뿐이라 "짝짓기"를 시험할 대상이
+없다). 브리프의 케이스는 손대지 않고 그대로 두되, 세대 셋(브리프
+픽스처의 기본 `build()`가 이미 그렇게 구성돼 있다)으로 matchId가 서로
+다른 상황을 만들어 인덱스별 짝짓기가 실제로 검증되는 케이스
+(`세대가_여럿이면_진단_각각이_해당_인덱스의_갤러리_경기와_짝지어진다`)를
+추가했다 — matchId가 세대마다 실제로 다른지(`distinct().count()`)까지
+먼저 확인해, 이 보강 테스트 자신이 우연히 다시 무력화되지 않게 했다.
+같은 이유로 기존 재현성 테스트(`같은_입력은_두_번_만들어도_바이트_단위로_동일한_번들을_낸다`)와
+파일 존재 테스트의 파일 목록에도 `diagnosis.json`을 추가했다 — 새 파일이
+번들에 들어간 이상 그 결정론도 단위 테스트가 지켜야 관문 재현 검증
+(Step 6)에만 기대지 않는다.
+
+**검증 순서.** ①`MatchDiagnosis` 작성 → ②브리프의 테스트 셋(원안 2개 +
+보강 1개, 파일목록·재현성 테스트 수정 2건)을 먼저 붙이고 `--tests
+'arena.tournament.BundleBuilderTest'`로 컴파일 에러(`Replay` import
+누락, 곧바로 추가)를 거쳐 5개 실패(`FileNotFoundException`/
+`NoSuchFileException`/파일 개수 어서션)를 확인 → ③`BundleBuilder`에
+`buildDiagnosis` 추가 후 17개 전부 PASS. `./gradlew record` →
+`./gradlew record -Pverify`로 `ARENA_EXIT_CODE=0` 확인 →
+`web/public/data/diagnosis.json`의 첫 `reach` 값 하나(895→999)를 손으로
+고치고 재검증하니 `ARENA_EXIT_CODE=1`(다이제스트 불일치, 두 해시가 출력에
+찍힘)이면서 Gradle은 여전히 `BUILD SUCCESSFUL`이었다 — §8이 말하는
+"0이 아니어도 초록불" 사례를 직접 재현했다. `./gradlew record`로 원복
+후 원본과 바이트 단위로 동일함(`diff`)과 `-Pverify`가 다시 `0`을 냄을
+확인했다.
+
+전체 `./gradlew test` — 218개 GREEN(D73 이후 215 + 이번 3개 신규 테스트,
+파일목록·재현성 테스트 2건은 기존 테스트 수정이라 개수에 안 잡힘),
+실패·에러·스킵 0. 저장소 전체의 XML 테스트 리포트 34개 파일을 직접
+합산해 확인했다.
+
+---
+
 ## 다음 단계
 
 - [x] 스펙 문서 작성 및 자체 검토
