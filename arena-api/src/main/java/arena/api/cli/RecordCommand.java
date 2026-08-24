@@ -17,6 +17,7 @@ import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 발표 번들을 만든다. --verify는 전체를 다시 만들어 내용을 대조한다.
@@ -151,16 +152,19 @@ public final class RecordCommand {
         try {
             MessageDigest md = MessageDigest.getInstance("SHA-256");
             try (var files = Files.walk(dir)) {
+                // relativePath를 파일당 한 번만 계산해 정렬 키와 해시 입력에
+                // 그대로 재사용한다 (Map.Entry로 캐시) — 같은 문자열을 두 번
+                // 계산하지 않는다.
                 files.filter(Files::isRegularFile)
-                        .sorted(Comparator.comparing(p -> relativePath(dir, p)))
-                        .forEach(p -> {
+                        .map(p -> Map.entry(relativePath(dir, p), p))
+                        .sorted(Map.Entry.comparingByKey())
+                        .forEach(entry -> {
                             try {
                                 // 반드시 UTF-8을 명시한다. 플랫폼 기본 문자셋에
                                 // 맡기면 같은 번들이 기계마다 다른 해시를 낸다 —
                                 // 바이트 동일성이 이 산출물의 존재 이유다.
-                                md.update(relativePath(dir, p)
-                                        .getBytes(StandardCharsets.UTF_8));
-                                md.update(Files.readAllBytes(p));
+                                md.update(entry.getKey().getBytes(StandardCharsets.UTF_8));
+                                md.update(Files.readAllBytes(entry.getValue()));
                             } catch (IOException e) {
                                 throw new UncheckedIOException(e);
                             }
