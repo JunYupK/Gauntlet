@@ -2,6 +2,7 @@ package arena.api.cli;
 
 import arena.api.Seeds;
 import arena.bots.Bot;
+import arena.bots.baseline.StraightBot;
 import arena.core.Direction;
 import arena.core.GameView;
 import arena.core.Point;
@@ -39,21 +40,25 @@ import java.util.Locale;
  * 봇이 아니고 관문의 심판 대상도 아니다. 등록하면 챔피언전과 관문에
  * 섞여 진짜 기록을 오염시킨다.
  *
- * <p><b>R3(스펙 §13, 10배 합격선)와 Step 1 테스트(1.5배)는 같은
- * {@code demoBot(0)}에 서로 다른 요구를 건다</b> — Step 1은 depth0가
- * "상대적으로 관대한 상대(depth6)"에게는 훨씬 오래 버텨야 한다고
- * 요구하고, R3는 depth0가 "가장 강한 상대(챔피언)"에게는 훨씬 빨리
- * 죽어야 한다고 요구한다. 두 요구를 세대 계열(depth0..11) 하나로
- * 동시에 만족시키려 하면(즉 챔피언 = generations.get(11)로 두면) 이
- * 게임의 "먼저 죽는 쪽이 지는" 구조 때문에 depth0의 생존 시간이
- * 상대에 거의 무관해지거나(자기 제한형 전략) 상대에 너무 민감해져서
- * (상호작용형 전략) 둘 중 하나는 항상 깨진다 — 여러 알고리즘(순수
- * flood-fill, 반발력, Voronoi 영토, 고정 시야 상자)으로 실측 확인했다
- * (log.md D76 참고). 그래서 {@link #run}에 넘기는 {@code finalChampion}은
- * {@code generations}의 마지막 원소(depth11)가 아니라 별도의
- * {@link #championBot()}이다 — depth0..11 세대는 서로에게(Step1의
- * demoBot(6) 포함) 관대한 "공간 회피형" 계열로 두고, 오직 챔피언만
- * 사냥형으로 둬서 R3가 요구하는 큰 낙차를 챔피언 쪽에서 만든다.
+ * <p><b>세대 0은 {@code demoBot(0)}이 아니라 {@link StraightBot}이다</b>
+ * (스펙 §12). 처음엔 세대 0에도 {@code demoBot(0)}("자라나는 시야
+ * 상자", 즉사만 피하는 것보다 훨씬 신중한 자기 제한형 전략)을 썼는데,
+ * 그 기준선이 챔피언 앞에서 평균 34턴이나 돼서 R3(스펙 §13, 10배
+ * 합격선)이 340턴이라는, 12세대 벽회피봇으로는 사실상 못 채우는 값이
+ * 돼 버렸다. 결함은 R3도 아니고 챔피언·`demoBot` 계열도 아니라 세대
+ * 0의 선택이었다 — 스펙 §12가 못박은 "Gen 0 = StraightBot, 기준선 약
+ * 15턴이므로 R3 합격선(10배)이 150턴이라는 의미 있는 값이 된다"를
+ * 따르지 않았던 것이다. 세대 0을 {@code StraightBot}으로 바꾸자 R3가
+ * 실제로 통과했다(자세한 수치는 log.md D76).
+ *
+ * <p>{@link #run}에 넘기는 {@code finalChampion}은 여전히
+ * {@code generations}의 마지막 원소가 아니라 별도의
+ * {@link #championBot()}(반경 {@link #CHAMPION_MIN_ROOM} 이상의 자기
+ * 공간을 지키는 한도에서 상대와의 거리를 최소화하는 사냥형)이다 —
+ * depth1..11 세대(및 브리프 Step 1이 직접 비교하는 {@code demoBot(0)}·
+ * {@code demoBot(6)})는 서로에게 관대한 "공간 회피형" 계열로 두고,
+ * 챔피언만 사냥형으로 둬서 개선 곡선의 상단(세대 11)이 챔피언 앞에서도
+ * 충분히 길게(수백 턴) 나오게 한다.
  */
 public final class FixtureCommand {
 
@@ -307,10 +312,27 @@ public final class FixtureCommand {
         }
     }
 
-    /** 깊이 0..GENERATION_COUNT-1의 벽회피봇 목록. 이미 깊이 오름차순이다. */
+    /**
+     * 세대 0은 {@link StraightBot}(스펙 §12 — 실제 시스템의 Gen 0과 같은
+     * 기준선), 세대 1..GENERATION_COUNT-1은 깊이 1..GENERATION_COUNT-1의
+     * 벽회피봇이다. {@code StraightBot}은 {@code arena-bots}의 베이스라인
+     * 봇으로 동결 대상이다 — 여기서는 인스턴스를 만들어 쓸 뿐 수정하지
+     * 않는다.
+     *
+     * {@code demoBot(0)}(자라나는 시야 상자, "즉사만 피함"보다 훨씬
+     * 신중한 자기 제한형 전략)을 세대 0으로 썼던 첫 시도는 챔피언 앞에서
+     * 평균 34턴을 버텼다 — 12세대 안에서 그 34턴의 10배(340턴)까지
+     * 오르는 개선 곡선은 사실상 만들 수 없는 요구였다. 스펙 §12가
+     * "Gen 0 = StraightBot, 기준선 약 15턴이므로 R3 합격선(10배)이
+     * 150턴이라는 의미 있는 값이 된다"고 못박은 이유가 바로 이것이다 —
+     * 10배라는 배수는 StraightBot의 낮은 기준선에 맞춰 계산된 것이지,
+     * 이미 상당히 신중한 벽회피봇(depth0)의 기준선에 맞춰진 게 아니다.
+     * 즉 깨졌던 건 R3 자체가 아니라 이 데모의 세대 0 선택이었다.
+     */
     private static List<Bot> buildGenerations() {
         List<Bot> generations = new ArrayList<>(GENERATION_COUNT);
-        for (int depth = 0; depth < GENERATION_COUNT; depth++) {
+        generations.add(new StraightBot());
+        for (int depth = 1; depth < GENERATION_COUNT; depth++) {
             generations.add(demoBot(depth));
         }
         return generations;

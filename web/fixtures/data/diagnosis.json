@@ -1,6 +1,6 @@
 [
   {
-    "matchId" : "Demo00Bot-vs-DemoChampionBot-seed1",
+    "matchId" : "StraightBot-vs-DemoChampionBot-seed1",
     "reach" : [
       [
         895,
@@ -15,11 +15,6 @@
         877,
         875,
         873,
-        871,
-        869,
-        867,
-        865,
-        0,
         0
       ],
       [
@@ -35,12 +30,7 @@
         877,
         875,
         873,
-        871,
-        869,
-        867,
-        865,
-        862,
-        861
+        871
       ]
     ],
     "loss" : [
@@ -57,19 +47,9 @@
         0,
         0,
         0,
-        0,
-        0,
-        0,
-        0,
-        862,
-        0
+        871
       ],
       [
-        0,
-        0,
-        0,
-        0,
-        0,
         0,
         0,
         0,
@@ -86,40 +66,40 @@
       ]
     ],
     "occupancy" : [
-      0.021111111111111112,
-      0.022222222222222223
+      0.015555555555555555,
+      0.016666666666666666
     ],
     "suicideRate" : [
-      0.0,
+      0.07692307692307693,
       0.0
     ],
     "worstMoves0" : [
       {
-        "turn" : 18,
-        "chose" : "LEFT",
+        "turn" : 13,
+        "chose" : "RIGHT",
         "best" : "UP",
         "reachAfterChosen" : 0,
-        "reachAfterBest" : 0,
-        "loss" : 0,
-        "suicide" : false,
+        "reachAfterBest" : 871,
+        "loss" : 871,
+        "suicide" : true,
         "fatal" : true
       },
       {
-        "turn" : 17,
-        "chose" : "LEFT",
-        "best" : "RIGHT",
-        "reachAfterChosen" : 0,
-        "reachAfterBest" : 862,
-        "loss" : 862,
+        "turn" : 1,
+        "chose" : "RIGHT",
+        "best" : "UP",
+        "reachAfterChosen" : 895,
+        "reachAfterBest" : 895,
+        "loss" : 0,
         "suicide" : false,
         "fatal" : false
       },
       {
-        "turn" : 1,
-        "chose" : "UP",
+        "turn" : 2,
+        "chose" : "RIGHT",
         "best" : "UP",
-        "reachAfterChosen" : 895,
-        "reachAfterBest" : 895,
+        "reachAfterChosen" : 893,
+        "reachAfterBest" : 893,
         "loss" : 0,
         "suicide" : false,
         "fatal" : false

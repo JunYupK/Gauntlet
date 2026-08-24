@@ -1,11 +1,11 @@
 [
   {
     "generation" : 0,
-    "botName" : "Demo00Bot",
-    "avgSurvivalTurns" : 34.25,
-    "occupancy" : 0.03935185185185185,
-    "suicideRate" : 0.0,
-    "scoreRate" : 0.16666666666666666,
+    "botName" : "StraightBot",
+    "avgSurvivalTurns" : 16.166666666666668,
+    "occupancy" : 0.019074074074074073,
+    "suicideRate" : 0.0745107073196318,
+    "scoreRate" : 0.0,
     "holdoutScoreRate" : 0.6,
     "attempts" : 1
   },

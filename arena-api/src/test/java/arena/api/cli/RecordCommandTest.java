@@ -17,6 +17,22 @@ class RecordCommandTest {
         assertTrue(Files.exists(tmp.resolve("data/gallery.json")));
     }
 
+    /**
+     * (Task 4 후속) {@code BundleBuilder.build}에 {@code demo} 파라미터가
+     * 생기면서 {@code RecordCommand}는 {@code false}를 넘긴다 — 진짜
+     * 번들이 {@code meta.json}에 "이건 데모다"라고 잘못 말하면 화면이
+     * 진짜 기록과 데모 기록을 구분할 수 없게 된다. {@code demo} 필드가
+     * 실제로 {@code false}로 찍히는지 직접 확인한다.
+     */
+    @Test
+    void 진짜_번들의_meta_json은_demo가_false다(@TempDir Path tmp) throws Exception {
+        RecordCommand.runInto(tmp.resolve("records"), tmp.resolve("data"), false);
+
+        String meta = Files.readString(tmp.resolve("data/meta.json"));
+        assertTrue(meta.contains("\"demo\" : false"),
+                "진짜 번들의 meta.json이 demo:false를 담고 있지 않다: " + meta);
+    }
+
     @Test
     void verify는_두_번_돌려_해시가_같으면_0을_반환한다(@TempDir Path tmp) {
         RecordCommand.runInto(tmp.resolve("records"), tmp.resolve("data"), false);

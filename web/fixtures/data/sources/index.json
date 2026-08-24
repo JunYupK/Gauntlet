@@ -1,7 +1,7 @@
 [
   {
     "generation" : 0,
-    "botName" : "Demo00Bot",
+    "botName" : "StraightBot",
     "available" : true,
     "file" : "sources/gen-00.java"
   },

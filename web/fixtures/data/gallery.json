@@ -1,12 +1,12 @@
 [
   {
     "schema" : 1,
-    "matchId" : "Demo00Bot-vs-DemoChampionBot-seed1",
+    "matchId" : "StraightBot-vs-DemoChampionBot-seed1",
     "width" : 30,
     "height" : 30,
     "seed" : 1,
     "swapped" : false,
-    "bot0Id" : "Demo00Bot",
+    "bot0Id" : "StraightBot",
     "start0" : {
       "x" : 17,
       "y" : 19
@@ -18,13 +18,13 @@
       "y" : 25
     },
     "dir1" : "LEFT",
-    "moves" : "UUUUUUUUUULUDULULUUURUURUURURRDRLDLR",
+    "moves" : "RURURURURURURRRRRRRRRRRRRR",
     "result" : {
       "winner" : 1,
-      "turns" : 18,
-      "reason" : "P0_HIT_OWN_WALL"
+      "turns" : 13,
+      "reason" : "P0_OUT_OF_BOUNDS"
     },
-    "hash" : "sha256:3e1665b493a14c9507042e88645cdf81cd8cd668615ca5e6d8cbc9bb9e6c1650"
+    "hash" : "sha256:69c90f0ead56fa71b3bf06ec49d33f4eb19b00b744e778dbbd31d48e03f3f6db"
   },
   {
     "schema" : 1,
