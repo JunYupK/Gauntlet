@@ -2117,14 +2117,24 @@ throw한다.** 이 패키지는 Next의 웹팩 `react-server` 조건으로만
 그대로는 vitest에서 못 찾는다.** vitest가 노출하는 `require`는 확장자
 없는 상대경로를 Node의 기본 목록(.js/.json/.node)으로만 찾고 `.ts`는
 시도하지 않는다(반면 `import`문과, 확장자를 명시한 `require('./x.ts')`는
-정상 동작한다 — 직접 확인). 브리프의 테스트 코드는 한 글자도 안
-건드리는 게 원칙이라, `web/src/lib/schema/index.js`라는 디렉터리
-셔틀(`module.exports = require('../schema.ts')`)을 새로 놓아 다리를
-놨다. 파일 이름이 확장자 없는 `schema`라서 형제 파일 `schema.ts`와
-충돌하지 않고, `import from './schema'`(ESM)는 확장자 있는 파일을
-디렉터리보다 먼저 찾으므로 항상 진짜 `schema.ts`로 간다 — 이 셔틀은
-`require()` 호출 경로에서만 밟힌다. 타입/스키마의 단일 출처는 여전히
-`schema.ts` 하나다.
+정상 동작한다 — 직접 확인). 최초 구현에서는 브리프의 테스트 코드를
+한 글자도 안 건드리려고 `web/src/lib/schema/index.js`라는 디렉터리
+셔틀(`module.exports = require('../schema.ts')`)로 다리를 놨었다.
+
+**[수정 라운드 1] 셔틀을 걷어내고 확장자 명시로 바꿨다(컨트롤러
+판단).** 리뷰에서 셔틀 자체는 무해하다고 확인됐지만(프로덕션 `import
+from './schema'`는 확장자 있는 파일을 디렉터리보다 먼저 찾으므로
+항상 진짜 `schema.ts`로 간다), `schema.ts` 옆에 이름이 겹치는 `schema/`
+디렉터리를 남겨두는 게 이후 모든 태스크가 계속 import할 파일 옆의
+군더더기라는 지적을 받아들였다. 대신 테스트 파일의 그 한 줄만
+`require('../lib/schema')` → `require('../lib/schema.ts')`(확장자
+명시)로 고쳤다 — 이건 "테스트를 verbatim으로 둔다"는 원칙이 지키려던
+것(같은 필드 거부 단언)을 안 건드리고, resolve 방식이라는 세부만 바꾼
+것이다. `web/src/lib/schema/` 디렉터리는 삭제했고, `src` 트리 전체에서
+확장자 없는 `lib/schema'` 참조가 남아있지 않음을 grep으로 확인했다.
+`.strict()`를 다시 지웠다 원복하는 실험도 이 새 require 경로로
+재확인했다 — 결과는 이전과 동일하게 그 테스트 하나만 FAIL, 나머지는
+PASS. 증거는 `task-5-report.md`의 수정 라운드 1 절에 남긴다.
 
 **의존성 버전 함정.** `npm i -D typescript`가 `latest` 태그로 잡은
 버전(7.0.2)이 실제로는 아직 Next 15의 config 로더와 호환되지 않는
@@ -2133,8 +2143,23 @@ throw한다.** 이 패키지는 Next의 웹팩 `react-server` 조건으로만
 깨졌다. `typescript@5.9.3`(5.x 최신)으로 고정해서 해결했다. 관문이
 아니라 의존성 레지스트리 쪽의 시간차 함정이라 로그에만 남긴다.
 
+**[수정 라운드 1] `holdoutScoreRate` union의 문자열 갈래가 테스트로
+안 지켜지고 있었다(R1 구멍).** 리뷰가 짚었다: 데모 번들은 전 세대가
+승격해서 `holdoutScoreRate`가 항상 숫자로만 실린다 — `z.union([z.number(),
+z.literal('NaN').transform(...)])`에서 문자열 `"NaN"` 갈래를 지우고
+`z.number()`만 남긴 스키마도 기존 6개 테스트(데모 번들 전체 통과
+포함)를 그대로 통과해버린다는 뜻이다. R1이 최우선인데 유니온의 절반이
+비검증 상태였다. 기존 6개 케이스는 그대로 두고, `GenerationStat` 최소
+객체를 `holdoutScoreRate: 'NaN'`과 `holdoutScoreRate: 0.58` 두 값으로
+직접 파싱해 각각 `Number.isNaN(...)`이 참/거짓임을 확인하는 케이스
+하나를 추가했다. 이것도 vacuous가 아님을 직접 확인했다 — 유니온을
+`z.number()`만 남기게 되돌리자(임시) 정확히 이 새 테스트 하나만
+FAIL했고(6 PASS / 1 FAIL), 유니온을 원복하자 7개 전부 다시 PASS.
+증거는 `task-5-report.md`에 남긴다.
+
 **했지만 관문 없음.** 이 태스크는 스펙 §11 T5가 요구하는 테스트
-하나(계약 테스트, 6개 케이스)만 갖는다. 시각 회귀 테스트도, 모바일
+하나(계약 테스트 — 브리프의 6개 케이스 + 수정 라운드 1에서 더한
+NaN 갈래 케이스, 총 7개)만 갖는다. 시각 회귀 테스트도, 모바일
 대응도 이 태스크의 범위가 아니다(스펙 §11 T5, §14) — 다음 태스크들의
 몫이다.
 
