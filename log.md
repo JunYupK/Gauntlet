@@ -2063,6 +2063,83 @@ Step 6의 `데모_번들의_개선_곡선은_실제로_올라간다`는 `>= gen0
 
 ---
 
+## D77 — 프론트엔드 스캐폴딩과 번들 스키마 계약 (Task 5)
+
+**무엇을 놓았나.** 화면은 아직 없다. 대신 `web/src/lib/schema.ts`가
+번들 JSON 8종의 모양을 Zod로 정의하고, `web/src/lib/bundle.ts`가
+`ARENA_BUNDLE` 아래 파일을 읽어 그 스키마로 `parse`한다. 스펙 §11
+T5가 프론트엔드에 요구하는 테스트는 정확히 이 계약 하나
+(`web/src/test/schema.contract.test.ts`)다 — 화면보다 계약이 먼저
+있어야, 나중에 백엔드가 필드를 바꿨을 때 화면이 조용히 빈 값을
+그리는 대신 여기서 죽는다.
+
+**손으로 쓴 interface를 두지 않는다.** `Bundle`을 구성하는 `Replay`·
+`GenerationStat`·`AttemptRecord`·`MatchDiagnosis`·`RoundRobinData`·
+`SourceIndexEntry`·`BundleMeta` 전부 `z.infer<typeof XSchema>`로
+뽑는다. 타입의 단일 출처가 스키마 하나이므로, 스키마를 고치는 순간
+타입도 같이 바뀐다 — 둘이 따로 놀다가 어긋나는 경로 자체가 없다.
+
+**모든 오브젝트 스키마가 `.strict()`다.** strict가 아니면 백엔드가
+필드 이름을 바꿔도(예: `holdoutScoreRate` → `holdoutRate`) 옛 필드가
+사라진 건 required 검증이 잡지만, *새 필드가 조용히 무시되는 절반*은
+strict 없이는 아무도 안 잡는다. `알_수_없는_필드가_들어오면_거부한다`
+테스트가 그 절반을 검증한다 — 이게 vacuous 테스트가 아님을 직접
+확인했다: `GenerationStatSchema`에서 `.strict()`를 지우고 `npm test`를
+돌리자 정확히 그 테스트 하나만 FAIL했다(나머지 5개는 그대로 PASS).
+원복 후 6개 전부 다시 PASS. 증거는 `task-5-report.md`에 그대로 남긴다.
+
+**`holdoutScoreRate`를 union으로 받는다.** 승격한 시도가 없는 세대는
+홀드아웃 승률이 정의되지 않아 Java 쪽이 `Double.NaN`을 내보내는데,
+Jackson이 이걸 따옴표 붙은 문자열 `"NaN"`으로 직렬화한다(순수 JSON에는
+NaN 리터럴이 없어서다). `z.union([z.number(), z.literal('NaN').transform(() => NaN)])`로
+두 형태를 다 받아 `number`로 정규화하고, 화면은 이후 `Number.isNaN()`
+하나로 "아직 승격 못 함"을 판정한다 — 파서 뒤로는 문자열/숫자 구분이
+아예 존재하지 않는다.
+
+**`ARENA_BUNDLE`에 기본값을 두지 않는다.** `bundleDir()`은 이 환경변수가
+없으면 그 자리에서 바로 던진다. 기본값을 뒀다면 발표 당일 스크립트
+실수 하나로 진짜 번들 대신 데모 번들이 화면에 뜨는 사고가 조용히
+일어날 수 있다 — 값이 없으면 빌드 자체가 실패하게 만들어 그 사고를
+빌드 타임에 옮겼다. `npx next build`를 `ARENA_BUNDLE` 없이 돌려
+정확히 이 문구로 실패하는 것까지 확인했다: `ARENA_BUNDLE이 설정되지
+않았다. 진짜 번들은 public/data (먼저 ./gradlew record), 데모 번들은
+fixtures/data (먼저 ./gradlew fixture).` (exit 1).
+
+**브리프에 없던 것 하나 — `server-only`가 vitest 밖에서는 항상
+throw한다.** 이 패키지는 Next의 웹팩 `react-server` 조건으로만
+"허용됨"을 판정하는 마커라서, vitest처럼 그 조건을 모르는 러너에서
+`bundle.ts`를 import하면 (코드가 맞아도) 무조건 던진다.
+`vitest.config.ts`에 `resolve.alias`로 `server-only`를 no-op 스텁
+(`web/src/test/mocks/server-only.ts`)으로 바꿔치기해서, 테스트
+환경에서는 "서버 컨텍스트에서 정상 import됐다"와 동치로 취급했다.
+
+**브리프에 없던 것 둘 — 마지막 테스트 케이스의 `require('../lib/schema')`가
+그대로는 vitest에서 못 찾는다.** vitest가 노출하는 `require`는 확장자
+없는 상대경로를 Node의 기본 목록(.js/.json/.node)으로만 찾고 `.ts`는
+시도하지 않는다(반면 `import`문과, 확장자를 명시한 `require('./x.ts')`는
+정상 동작한다 — 직접 확인). 브리프의 테스트 코드는 한 글자도 안
+건드리는 게 원칙이라, `web/src/lib/schema/index.js`라는 디렉터리
+셔틀(`module.exports = require('../schema.ts')`)을 새로 놓아 다리를
+놨다. 파일 이름이 확장자 없는 `schema`라서 형제 파일 `schema.ts`와
+충돌하지 않고, `import from './schema'`(ESM)는 확장자 있는 파일을
+디렉터리보다 먼저 찾으므로 항상 진짜 `schema.ts`로 간다 — 이 셔틀은
+`require()` 호출 경로에서만 밟힌다. 타입/스키마의 단일 출처는 여전히
+`schema.ts` 하나다.
+
+**의존성 버전 함정.** `npm i -D typescript`가 `latest` 태그로 잡은
+버전(7.0.2)이 실제로는 아직 Next 15의 config 로더와 호환되지 않는
+새 세대 컴파일러였다 — `next build`가 `next.config.ts`를 읽다가
+"Cannot read properties of undefined (reading 'fileExists')"로 즉시
+깨졌다. `typescript@5.9.3`(5.x 최신)으로 고정해서 해결했다. 관문이
+아니라 의존성 레지스트리 쪽의 시간차 함정이라 로그에만 남긴다.
+
+**했지만 관문 없음.** 이 태스크는 스펙 §11 T5가 요구하는 테스트
+하나(계약 테스트, 6개 케이스)만 갖는다. 시각 회귀 테스트도, 모바일
+대응도 이 태스크의 범위가 아니다(스펙 §11 T5, §14) — 다음 태스크들의
+몫이다.
+
+---
+
 ## 다음 단계
 
 - [x] 스펙 문서 작성 및 자체 검토
