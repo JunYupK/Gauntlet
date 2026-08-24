@@ -40,17 +40,26 @@ describe('진단 인덱스 규약', () => {
   // 아래는 브리프에 없는 추가 케이스 — "이 단언을 통과하는 잘못된 구현은
   // 무엇인가"를 물어서 찾은 구멍을 막는다.
 
-  it('off-by-one 구현(0-based turn을 그대로 씀)이면 봉우리 일치 테스트가 실패한다', () => {
-    // 검증 방법: 여기서 "잘못된" lossSeries를 직접 흉내 내 turn을
-    // i(0-based)로 채우면, worstFor가 돌려주는 1-based turn(=2)과
-    // 어긋나는 걸 직접 확인한다 — 즉 브리프의 "봉우리 일치" 테스트가
-    // 잡아내는 실패 모드가 정확히 이것이다.
-    const brokenPeak = diagnosis.loss[0]
-      .map((loss: number, i: number) => ({ turn: i, loss })) // 버그: i + 1이 아니라 i
-      .reduce((a: { turn: number; loss: number }, b: { turn: number; loss: number }) =>
-        (b.loss > a.loss ? b : a));
-    expect(worstFor(diagnosis, 0)[0].turn).not.toBe(brokenPeak.turn);
-    expect(brokenPeak.turn).toBe(1); // 버그가 내놓는 틀린 턴(진짜는 2)
+  it('봉우리가 배열 끝쪽(턴 4)에 있어도 lossSeries가 실제로 호출된 결과로 worstFor와 같은 턴을 가리킨다', () => {
+    // 리뷰 지적(round 1): 이전 버전은 "잘못된" lossSeries를 이 테스트
+    // 안에서 직접 흉내 내 계산만 했을 뿐 실제 lossSeries를 한 번도
+    // 호출하지 않았다 — lossSeries를 완전히 다른 값을 내도록 바꿔도
+    // 이 테스트는 계속 초록이었다(구현을 전혀 감시하지 않는 테스트).
+    // 아래는 실제 lossSeries(diagnosis2, 0)를 호출해 그 반환값에서
+    // 봉우리를 찾고, worstFor(diagnosis2, 0)의 turn과 비교한다 — 브리프
+    // 테스트 2와 같은 성질을 검사하지만, 봉우리 위치가 다른(턴 2가 아닌
+    // 턴 4) 별도 픽스처를 써서 문자 그대로 중복이 되지 않게 했다.
+    const diagnosis2 = {
+      matchId: 'm2', reach: [[9, 8, 7, 6], [9, 8, 7, 6]], loss: [[0, 1, 2, 9], [0, 0, 0, 0]],
+      occupancy: [0, 0], suicideRate: [0, 0],
+      worstMoves0: [{ turn: 4, chose: 'DOWN', best: 'LEFT', reachAfterChosen: 6,
+        reachAfterBest: 15, loss: 9, suicide: false, fatal: false }],
+      worstMoves1: [],
+    } as never;
+
+    const peak = lossSeries(diagnosis2, 0).reduce((a, b) => (b.loss > a.loss ? b : a));
+    expect(peak.turn).toBe(4); // 참값. off-by-one이면 3이 나온다(아래 주입 검증).
+    expect(worstFor(diagnosis2, 0)[0].turn).toBe(peak.turn);
   });
 
   it('loss가 전부 0이어도 turn 목록은 1-based 그대로 나온다(자멸 없는 경기도 인덱싱은 동일)', () => {
