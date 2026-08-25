@@ -359,11 +359,29 @@ CODE=$(./gradlew gate -Pbot=Gen07Bot | grep -o 'ARENA_EXIT_CODE=[0-3]' | tail -1
 반드시 함께 초록으로 유지한다 — 디코더만 고치고 그 테스트를 안 보면
 화면이 실제 경기와 다른 그림을 그려도 아무도 모른다.
 
-**화면은 번들의 수치를 재계산하지 않는다(R1).** `avgSurvivalTurns`·
-`scoreRate`·`occupancy`·`suicideRate`·R3 배율·과적합 격차 등, 하네스가
-이미 판정한 값은 화면이 그대로 찍기만 한다. 유일한 예외가 위의 리플레이
-디코더이고, 그래서 그 파일에만 별도의 엔진 대조 테스트가 붙어 있다 —
-그 밖의 어떤 화면 코드에도 나눗셈·비교로 새 판정을 만들어 넣지 않는다.
+**화면은 번들이 이미 판정한 값을 다시 판정하지 않는다(R1).**
+`avgSurvivalTurns`·`scoreRate`·`occupancy`·`suicideRate` 같은, 하네스가
+직접 낸 값은 화면이 그대로 찍기만 한다 — 원본 리플레이를 다시 돌려
+이 값들을 유도하는 코드는 어디에도 없다. 이 규칙이 금지하는 것은 **엔진
+규칙의 재구현**이다: 유일한 예외가 리플레이 디코더(`web/src/lib/replay.ts`)이고,
+그래서 그 파일에만 별도의 엔진 대조 테스트(`replay.conformance.test.ts`)가
+붙어 있다.
+
+이것과 **이미 판정된 번들 원시값들을 조합해 발표용 수량을 뽑는 것**은
+다른 이야기다 — 새로운 판정이 아니라 그 위의 산술이므로 허용한다.
+`web/src/lib/curve.ts`가 R3 배율(`r3Ratio` = 마지막 세대 `avgSurvivalTurns`
+÷ Gen 0의 `avgSurvivalTurns`)과 그 합격 여부(`r3Passed` = 배율 `>= 10`)를
+나눗셈·비교로 뽑는 것, `web/src/lib/heatmap.ts`가 과적합 격차
+(`overfitGap` = `scoreRate` − `holdoutScoreRate`)를 뺄셈으로, 순환 우위
+(`cycles`)를 라운드로빈 승률 행렬의 `> 0.5` 비교로 뽑는 것이 그 예다.
+넷 다 번들 필드 자체는 아니지만, 하네스가 이미 판정해 둔 값(승률·생존
+턴·라운드로빈 행렬)을 조합할 뿐 원본 경기를 다시 채점하지 않는다.
+
+**이 여지가 하네스가 이미 낸 판정을 화면이 다시 계산해도 된다는 뜻은
+아니다.** `avgSurvivalTurns`·`scoreRate` 같은 값을 리플레이나 원시
+로그에서 화면이 직접 유도하는 코드는 여전히 금지다 — 그건 리플레이
+디코더가 아닌 곳에서 엔진 판정을 재구현하는 것이라 위 예외에 들지
+않는다.
 
 **발표 셸(`app/layout.tsx` + `components/Deck.tsx`).** `/`가 목차이자
 시작점이고, 순서는 `lib/screens.ts`의 `SCREENS` 하나에서만 나온다(스펙
