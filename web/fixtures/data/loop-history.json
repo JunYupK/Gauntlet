@@ -75,6 +75,14 @@
     {
       "generation" : 4,
       "attempt" : 2,
+      "verdict" : "REJECTED",
+      "stage" : "CHAMPIONSHIP",
+      "failedGate" : null,
+      "detail" : "승점 승률 0.48 (기준 0.60)"
+    },
+    {
+      "generation" : 4,
+      "attempt" : 3,
       "verdict" : "PROMOTED",
       "stage" : "CHAMPIONSHIP",
       "failedGate" : null,
@@ -155,10 +163,10 @@
     {
       "generation" : 8,
       "attempt" : 3,
-      "verdict" : "PROMOTED",
+      "verdict" : "REJECTED",
       "stage" : "CHAMPIONSHIP",
       "failedGate" : null,
-      "detail" : "승점 승률 0.84 (기준 0.60)"
+      "detail" : "승점 승률 0.48 (기준 0.60)"
     }
   ],
   "9" : [

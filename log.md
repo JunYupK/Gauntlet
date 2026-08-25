@@ -3023,6 +3023,92 @@ export). `./gradlew test` BUILD SUCCESSFUL, 232 Java 테스트 전부
 
 ---
 
+## D88 — 데모 이력에 챔피언전 반려·미승격 세대를 끼워 넣는다: 유닛테스트만 있던 두 상태를 발표 화면에 실제로 띄운다
+
+**무엇이 비어 있었나.** D82(화면 3)와 D85(화면 6)가 이미 각자 적어 뒀듯,
+합성 데모 이력(`FixtureCommand.synthesizeHistory`)은 12세대 전부가
+"관문 반려들 → 곧장 챔피언전 승격"으로만 끝났다. 두 화면 모두 다른
+상태를 다루는 코드를 갖고 있었지만(화면 3의 챔피언전 반려 보라색,
+화면 6의 홀드아웃 `NaN`일 때 "승격 기록 없음") 데모 데이터가 그 상태를
+한 번도 만들지 않아 유닛테스트로만 검증되고 실제 발표에서는 보이지
+않았다. 이번 변경은 그 간극을 닫는다 — `FixtureCommand.java` 한 파일과
+그 테스트만 건드리고, 실제 경기(`buildGenerations`, `avgSurvivalTurns`)는
+손대지 않았다.
+
+**세대 4 — 한 번 지고 나서야 승격한다.** 관문 통과(G2~G7 전부 pass) 후
+챔피언전에서 한 번 지는 시도(`stage=CHAMPIONSHIP`, `verdict=REJECTED`,
+`scoreRate=0.48`(문턱 0.60 아래), `holdoutScoreRate=NaN`)를 기존 승격
+시도 앞에 끼워 넣었다. 시도 수가 2에서 3으로 늘었고, 홀드아웃은 여전히
+남아 있어(마지막 승격 시도의 값) 화면 6에서 정상적인 과적합 격차도
+같이 보여준다 — "졌다가 이겼다"는 이야기 전체가 데모에 나타난다.
+
+**세대 8 — 끝내 승격하지 못한다.** 같은 문턱 아래 `scoreRate`로
+챔피언전에서 지는 시도를 만들되, 그 뒤에 승격 시도를 붙이지 않았다.
+시도 수는 그대로(1+8%3=3)이고 마지막 시도의 결론만 승격에서 챔피언전
+반려로 바뀐다. `RecordStore.holdoutOf(8)`이 `NaN`을 돌려주고,
+`generations.json`의 gen-8 `holdoutScoreRate`가 `"NaN"`(Jackson의
+따옴표 붙은 표기)으로 찍힌다 — 세대 루프에서 실제로 일어날 수 있는
+정상적인 결과이고, 데모 데이터가 그걸 숨기지 않는다는 뜻이다.
+
+두 세대 모두 새 헬퍼 `rejectedChallengeReportFor`(챔피언전에서 진
+`ChallengeReport`, `promoted=false`·`holdoutScoreRate=NaN` 고정)와
+`saveGatePass`(관문 통과 시도 하나를 저장하는 공통 코드, 기존 로직에서
+추출)를 공유한다. `saveGatePass`의 `accepted` 플래그를 챔피언전 반려
+시도에는 `false`로 넘겨 소스 스텁 주석("(채택)"/"(반려)")이
+`RecordStore.acceptedSourceOf`의 실제 선택과 어긋나지 않게 했다 — 관문은
+통과했어도 이 시도가 세대의 "채택된 코드"는 아니기 때문이다.
+
+**락을 건 새 테스트 둘(모두 `RecordStore.historyOf`/`holdoutOf`로 읽는다
+— 만든 값을 자기 자신이 다시 읽어 통과하는 테스트를 피하려고).**
+① `루프_이력에_챔피언전_반려_시도가_있다` — `stage=CHAMPIONSHIP` +
+`verdict=REJECTED` 시도가 최소 하나. ② `세대_중_일부는_홀드아웃이_없고_일부는_유한하다`
+— `holdoutOf`가 `NaN`인 세대와 유한한 세대가 각각 최소 하나씩,
+`Double.isNaN`으로 엄격히 검사(NaN을 `assertEquals`로 비교하면 항상
+실패해 버그를 숨긴다). 두 테스트를 먼저 추가해 RED(현재 구현에서 실패)를
+확인한 뒤 구현했다 — RED 로그는 보고서에 있다.
+
+**건드린 기존 테스트는 없다.** 브리프 6개 + 추가 4개짜리 화면 3
+테스트, 브리프 + 추가 5개짜리 화면 6 테스트 전부 하네스가 낸 값을
+그대로 읽으므로 데모 데이터가 바뀌어도 assertion 자체는 그대로였다.
+`FixtureCommandTest`의 기존 네 테스트(개선 곡선 R3, 12세대, 반려 사유
+다양성, 시도/반려 개수)도 전부 원문 그대로 통과했다 — R3는 실제
+경기를 안 건드렸으니 당연하고, 나머지 셋은 "최소 N개"류 하한 assertion이라
+이번 변경(시도가 늘거나 판정이 바뀌는 것)과 충돌하지 않았다.
+
+**픽스처 재생성이 드러낸 부수 문제 — 유령 소스 파일.** `./gradlew fixture`를
+돌리자 `sources/gen-08.java`(예전 "채택" 소스)가 `index.json`에서는
+`available:false`·`file:null`로 바뀌었는데, 디스크의 실제 파일은
+지워지지 않고 그대로 남았다 — `FixtureCommand.run`도 `SourceBundle.write`도
+`outputDir`를 정리하고 다시 쓰지 않고 이미 있는 파일 위에 덧쓰기만
+하기 때문이다(`RecordCommand.runInto`도 같은 구조). 이번 커밋 범위(한
+파일 + 그 테스트) 밖의 구조적 결함이라 하네스 코드는 고치지 않고,
+이번에 생긴 유령 파일(`sources/gen-08.java`)만 `git rm`으로 지워
+커밋에 함께 실었다 — 안 그러면 `index.json`이 "기록 없다"고 말하는데
+실제로는 파일이 남아 있는 모순이 커밋된다. **이 구조적 결함(출력
+디렉터리를 정리하지 않는 것) 자체는 남아 있다** — 다음에 어떤 세대의
+"채택 소스"가 사라지는 변경이 생기면 같은 유령 파일 문제가 다시
+난다. 고치려면 `FixtureCommand.run`/`RecordCommand.runInto`가 빌드
+전에 `outputDir`를 지우는 게 정답일 텐데, 그건 이 변경의 범위(데모
+이력 두 상태)를 넘는 별도 결정이라 여기서는 손대지 않고 기록만
+남긴다.
+
+**검증.** `./gradlew test` BUILD SUCCESSFUL, 234개(232 + 신규 2)
+전부 GREEN(모듈별 surefire XML `tests=` 합산으로 재확인). `./gradlew fixture`를
+연속 두 번 돌려 `web/fixtures/data`가 바이트 단위로 동일함을 확인(R1).
+`loop-history.json`에 `"verdict" : "REJECTED"`/`"stage" : "CHAMPIONSHIP"`가
+정확히 세대 4(attempt 2)·세대 8(attempt 3) 두 곳에 나타나고, 그 외
+열 세대는 전부 `PROMOTED`로 원래대로다. `generations.json`의
+`holdoutScoreRate`가 `"NaN"`인 줄은 세대 8 딱 하나. R3 비율은
+17.30배(gen0 16.17턴 → gen11 279.75턴)로 변경 전과 문자 그대로 동일 —
+실제 경기를 안 건드렸으니 당연한 결과다. `npm test` 94/94 GREEN(변화
+없음). `npm run build:demo` 성공, `out/heatmap.html`에 "승격 기록
+없음" 2회, `out/loop.html`에 챔피언전 반려색 `#9085e9` 3회 등장 —
+코드 추적이 아니라 실제 렌더 결과로 확인했다(D82·D85 때는 데모에
+안 나타나 코드 추적으로만 확인했던 부분). Playwright 스모크
+(`smoke.spec.ts`) 9개 전부 GREEN, 콘솔 오류 0건.
+
+---
+
 ## 다음 단계
 
 - [x] 스펙 문서 작성 및 자체 검토

@@ -50,8 +50,8 @@
   {
     "generation" : 8,
     "botName" : "Demo08Bot",
-    "available" : true,
-    "file" : "sources/gen-08.java"
+    "available" : false,
+    "file" : null
   },
   {
     "generation" : 9,
