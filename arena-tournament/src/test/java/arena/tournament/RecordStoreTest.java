@@ -367,4 +367,112 @@ class RecordStoreTest {
         assertFalse(Files.exists(tmp.resolve("gen-04/attempt-2")),
                 "읽기 전용이어야 할 historyOf가 빈 시도 디렉터리를 만들었다");
     }
+
+    // --- holdoutOf: 승격한 시도의 홀드아웃 승률만 화면 6이 읽을 수 있게 노출한다 ---
+
+    @Test
+    void 승격한_시도의_홀드아웃_승률을_읽는다(@TempDir Path tmp) {
+        RecordStore store = new RecordStore(tmp);
+        store.saveChallengeReport(3, 1, new ChallengeReport(
+                "Gen03Bot", "Gen02Bot", false, 0.48, 0.60, 20, 8, 22, Double.NaN, List.of()));
+        store.saveChallengeReport(3, 2, new ChallengeReport(
+                "Gen03Bot", "Gen02Bot", true, 0.71, 0.60, 65, 12, 23, 0.63, List.of()));
+
+        assertEquals(0.63, store.holdoutOf(3), 1e-9);
+    }
+
+    @Test
+    void 승격한_시도가_없으면_홀드아웃은_NaN이다(@TempDir Path tmp) {
+        RecordStore store = new RecordStore(tmp);
+        store.saveChallengeReport(4, 1, new ChallengeReport(
+                "Gen04Bot", "Gen03Bot", false, 0.48, 0.60, 20, 8, 22, Double.NaN, List.of()));
+
+        assertTrue(Double.isNaN(store.holdoutOf(4)), "반려만 있는 세대의 홀드아웃은 NaN이어야 한다");
+    }
+
+    @Test
+    void 기록이_아예_없는_세대의_홀드아웃도_NaN이다(@TempDir Path tmp) {
+        assertTrue(Double.isNaN(new RecordStore(tmp).holdoutOf(9)));
+    }
+
+    /**
+     * (리뷰 정정) 기존 세 테스트는 전부 "디스크상 마지막 시도"와 "마지막으로
+     * 승격한 시도"가 우연히 일치한다 — {@code Championship.judge}가 반려
+     * 리포트의 {@code holdoutScoreRate}를 항상 NaN으로 채우므로, 승격
+     * 다음에 반려가 오는 순서를 시험하지 않으면 {@code r.promoted()} 가드를
+     * 빼고 "마지막 championship.json을 무조건 덮어쓴다"로 바꿔도 세 테스트
+     * 모두 그대로 통과한다. 그 순서를 직접 재현해야 가드가 실제로 하는
+     * 일이 드러난다.
+     */
+    @Test
+    void 승격_뒤에_반려가_와도_승격한_시도의_값을_읽는다(@TempDir Path tmp) {
+        RecordStore store = new RecordStore(tmp);
+        store.saveChallengeReport(5, 1, new ChallengeReport(
+                "Gen05Bot", "Gen04Bot", true, 0.71, 0.60, 65, 12, 23, 0.63, List.of()));
+        store.saveChallengeReport(5, 2, new ChallengeReport(
+                "Gen05Bot", "Gen04Bot", false, 0.48, 0.60, 20, 8, 22, Double.NaN, List.of()));
+
+        assertEquals(0.63, store.holdoutOf(5), 1e-9,
+                "마지막 시도가 반려여도 승격한 시도의 홀드아웃이 남아야 한다");
+    }
+
+    /**
+     * 클래스 javadoc이 "승격 시도가 둘이면 마지막 것을 취한다"고 명시적으로
+     * 주장하는 부분을 시험한다 — 이 시험이 없으면 그 주장은 아무도 지키지
+     * 않는 문서일 뿐이다.
+     */
+    @Test
+    void 승격한_시도가_둘이면_나중_것을_읽는다(@TempDir Path tmp) {
+        RecordStore store = new RecordStore(tmp);
+        store.saveChallengeReport(6, 1, new ChallengeReport(
+                "Gen06Bot", "Gen05Bot", true, 0.65, 0.60, 60, 10, 30, 0.61, List.of()));
+        store.saveChallengeReport(6, 2, new ChallengeReport(
+                "Gen06Bot", "Gen05Bot", true, 0.71, 0.60, 65, 12, 23, 0.63, List.of()));
+
+        assertEquals(0.63, store.holdoutOf(6), 1e-9,
+                "승격한 시도가 둘이면 마지막 승격의 홀드아웃을 읽어야 한다");
+    }
+
+    // --- acceptedSourceOf: 화면 4가 "이 세대의 코드"로 보여줄 것은 채택된 쪽이다 ---
+
+    @Test
+    void 채택된_시도의_소스를_고른다(@TempDir Path tmp) {
+        RecordStore store = new RecordStore(tmp);
+        store.saveGateReport(2, 1, "class 반려된놈 {}",
+                new GateReport("Gen02Bot", false, "G4", "예외를 던졌다", List.of()));
+        store.saveGateReport(2, 2, "class 채택된놈 {}",
+                new GateReport("Gen02Bot", true, null, "", List.of()));
+
+        assertEquals("class 채택된놈 {}", store.acceptedSourceOf(2).orElseThrow());
+    }
+
+    @Test
+    void 채택된_시도가_없으면_비어있다(@TempDir Path tmp) {
+        RecordStore store = new RecordStore(tmp);
+        store.saveGateReport(2, 1, "class 반려된놈 {}",
+                new GateReport("Gen02Bot", false, "G4", "예외를 던졌다", List.of()));
+
+        assertTrue(store.acceptedSourceOf(2).isEmpty(),
+                "반려만 있는 세대는 채택된 소스가 없어야 한다");
+    }
+
+    /**
+     * (보강) 위 두 테스트는 채택된 시도가 항상 디스크상 "마지막" 시도이기도
+     * 하다 — verdict를 전혀 안 보고 "가장 나중 시도의 bot.java를 그냥
+     * 돌려준다"로 구현해도 둘 다 통과한다(Task 1이 겪은 것과 같은 결함
+     * 모양이다). 순서를 뒤집어 채택된 쪽이 먼저 오고 반려가 나중에 오게
+     * 만들어야, "마지막 시도"와 "채택된 시도"가 실제로 갈리는 상황에서
+     * verdict 필터링이 진짜로 동작하는지 드러난다.
+     */
+    @Test
+    void 나중_시도가_반려여도_먼저_채택된_소스를_고른다(@TempDir Path tmp) {
+        RecordStore store = new RecordStore(tmp);
+        store.saveGateReport(3, 1, "class 채택된놈 {}",
+                new GateReport("Gen03Bot", true, null, "", List.of()));
+        store.saveGateReport(3, 2, "class 반려된놈 {}",
+                new GateReport("Gen03Bot", false, "G4", "예외를 던졌다", List.of()));
+
+        assertEquals("class 채택된놈 {}", store.acceptedSourceOf(3).orElseThrow(),
+                "마지막 시도만 보면 반려된 소스를 골랐을 것이다 — verdict를 걸러야 한다");
+    }
 }

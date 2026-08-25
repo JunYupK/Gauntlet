@@ -13,5 +13,6 @@ public record GenerationStat(
         double occupancy,
         double suicideRate,
         double scoreRate,
+        double holdoutScoreRate,
         int attempts
 ) {}

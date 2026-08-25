@@ -1,9 +1,12 @@
 package arena.api;
 
 import arena.api.cli.ChallengeCommand;
+import arena.api.cli.FixtureCommand;
 import arena.api.cli.GateCommand;
 import arena.api.cli.RecordCommand;
 import arena.bots.BotRegistry;
+
+import java.nio.file.Path;
 
 /**
  * CLI 진입점.
@@ -50,6 +53,7 @@ public final class ArenaApplication {
               gate <BotName>        관문 G2~G7
               challenge <BotName>   챔피언전 100경기
               record [--verify]     발표 번들 생성 / 재현 검증
+              fixture                web/fixtures/data 에 데모 번들 생성(진짜 기록이 아니다)
             """;
 
     /**
@@ -143,6 +147,7 @@ public final class ArenaApplication {
                 case "gate"      -> GateCommand.run(requireArg(args, "gate <BotName>"));
                 case "challenge" -> ChallengeCommand.run(requireArg(args, "challenge <BotName>"));
                 case "record"    -> RecordCommand.run(args.length > 1 && args[1].equals("--verify"));
+                case "fixture"   -> FixtureCommand.run(Path.of("web/fixtures/data"));
                 default -> {
                     System.out.println("알 수 없는 명령: " + args[0]);
                     yield 2;

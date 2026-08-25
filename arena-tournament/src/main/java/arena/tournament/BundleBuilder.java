@@ -81,11 +81,19 @@ public final class BundleBuilder {
      * 행렬을 내보내면 "히트맵이 원래 비어 있었다"와 "호출자가 시드를
      * 빠뜨렸다"를 구분할 수 없다.
      */
+    /**
+     * {@code demo}는 이 번들이 세대 루프의 진짜 산출물인지, 화면 개발용
+     * 데모 번들({@code arena-api}의 {@code FixtureCommand})인지를 가른다.
+     * 기본값 오버로드를 두지 않는다 — 호출자가 이 값을 빠뜨렸을 때 조용히
+     * "진짜"(false) 쪽으로 기울면, 데모 번들이 진짜 번들로 화면에
+     * 표시되는 사고를 코드가 막아주지 못한다. 모든 호출자가 매번
+     * 명시하게 한다.
+     */
     public static void build(
             List<Bot> generations, Bot finalChampion,
             long gallerySeed, List<Long> judgingSeeds, List<Long> roundRobinSeeds,
             int width, int height,
-            RecordStore store, Path outputDir) {
+            RecordStore store, Path outputDir, boolean demo) {
 
         // 두 시드 목록 모두 같은 규칙으로 검사한다. 예전에는 roundRobinSeeds만
         // 빈 목록을 거부하고 judgingSeeds는 무검사로 통과해서, 빈 judgingSeeds가
@@ -99,11 +107,19 @@ public final class BundleBuilder {
         List<GenerationStat> stats = buildStats(
                 generations, finalChampion, judgingSeeds, width, height, store);
 
+        Map<String, Object> meta = new LinkedHashMap<>();
+        meta.put("demo", demo);
+        meta.put("generations", generations.size());
+        meta.put("gallerySeed", gallerySeed);
+
+        writeJson(outputDir.resolve("meta.json"), meta);
         writeJson(outputDir.resolve("gallery.json"), gallery);
+        writeJson(outputDir.resolve("diagnosis.json"), buildDiagnosis(gallery));
         writeJson(outputDir.resolve("generations.json"), stats);
         writeJson(outputDir.resolve("loop-history.json"), buildHistory(generations, store));
         writeJson(outputDir.resolve("roundrobin.json"),
                 buildRoundRobin(generations, roundRobinSeeds, width, height));
+        SourceBundle.write(generations, store, outputDir);
     }
 
     /**
@@ -128,6 +144,28 @@ public final class BundleBuilder {
                     seed, width, height));
         }
         return gallery;
+    }
+
+    /**
+     * 갤러리 경기의 진단. {@code gallery}를 그대로 순회하므로 순서와
+     * 개수가 필연적으로 같아진다 — 두 배열을 각각 만들어 "같은 순서일
+     * 것"을 약속으로 두면 언젠가 어긋난다.
+     *
+     * worstMoves의 limit 3은 화면이 쓰는 값이다. 화면 5가 "가장 나쁜 수
+     * 몇 개"를 짚어 보여주므로 전부 실을 이유가 없고, 전부 실으면
+     * 900턴짜리 경기에서 이 파일이 리플레이보다 커진다.
+     */
+    private static List<MatchDiagnosis> buildDiagnosis(List<Replay> gallery) {
+        List<MatchDiagnosis> diagnosis = new ArrayList<>();
+        for (Replay r : gallery) {
+            MatchMetrics m = LossAnalyzer.analyze(r);
+            diagnosis.add(new MatchDiagnosis(
+                    r.matchId(),
+                    m.reach(), m.loss(), m.occupancy(), m.suicideRate(),
+                    LossAnalyzer.worstMoves(r, 0, 3),
+                    LossAnalyzer.worstMoves(r, 1, 3)));
+        }
+        return diagnosis;
     }
 
     /**
@@ -178,6 +216,7 @@ public final class BundleBuilder {
                     totalOccupancy / n,
                     totalSuicide / n,
                     Standing.of(replays, GEN_ID).scoreRate(),
+                    store.holdoutOf(gen),
                     store.nextAttempt(gen) - 1));
         }
         return stats;
@@ -245,7 +284,7 @@ public final class BundleBuilder {
         return wire;
     }
 
-    private static void writeJson(Path path, Object value) {
+    static void writeJson(Path path, Object value) {
         try {
             Files.createDirectories(path.getParent());
             MAPPER.writeValue(path.toFile(), value);

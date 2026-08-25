@@ -80,3 +80,10 @@ tasks.register('record', JavaExec) {
             '진짜 종료 코드는 출력의 ARENA_EXIT_CODE=<n> 줄에 있다'
     args = project.hasProperty('verify') ? ['record', '--verify'] : ['record']
 }
+
+tasks.register('fixture', JavaExec) {
+    arenaExec(it)
+    description = 'fixture — web/fixtures/data 에 데모 번들 생성 (진짜 기록이 아니다). ' +
+            '진짜 종료 코드는 출력의 ARENA_EXIT_CODE=<n> 줄에 있다'
+    args = ['fixture']
+}

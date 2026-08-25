@@ -6,6 +6,8 @@ import arena.bots.baseline.WallAvoidBot;
 import arena.bots.gen.Gen00Bot;
 import arena.core.Direction;
 import arena.core.GameView;
+import arena.core.Replay;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
@@ -25,7 +27,7 @@ class BundleBuilderTest {
     private void build(Path out, Path records) {
         List<Bot> generations = List.of(new Gen00Bot(), new RandomBot(), new WallAvoidBot());
         BundleBuilder.build(generations, new WallAvoidBot(), 1L, SEEDS, SEEDS, 30, 30,
-                new RecordStore(records), out);
+                new RecordStore(records), out, false);
     }
 
     /**
@@ -46,7 +48,7 @@ class BundleBuilderTest {
 
         IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
                 () -> BundleBuilder.build(generations, new WallAvoidBot(), 1L,
-                        List.of(), SEEDS, 30, 30, new RecordStore(tmp.resolve("records")), out));
+                        List.of(), SEEDS, 30, 30, new RecordStore(tmp.resolve("records")), out, false));
 
         assertTrue(e.getMessage().contains("judgingSeeds"),
                 "어느 인자가 잘못됐는지 메시지에 없다: " + e.getMessage());
@@ -62,16 +64,17 @@ class BundleBuilderTest {
         assertThrows(IllegalArgumentException.class,
                 () -> BundleBuilder.build(generations, new WallAvoidBot(), 1L,
                         List.of(1L, 1L), SEEDS, 30, 30,
-                        new RecordStore(tmp.resolve("records")), tmp.resolve("data")));
+                        new RecordStore(tmp.resolve("records")), tmp.resolve("data"), false));
     }
 
     @Test
-    void 화면이_읽을_파일_넷을_만든다(@TempDir Path tmp) {
+    void 화면이_읽을_파일_다섯을_만든다(@TempDir Path tmp) {
         Path out = tmp.resolve("data");
         build(out, tmp.resolve("records"));
 
         for (String name : new String[]{
-                "gallery.json", "generations.json", "loop-history.json", "roundrobin.json"}) {
+                "gallery.json", "generations.json", "loop-history.json", "roundrobin.json",
+                "diagnosis.json"}) {
             assertTrue(Files.exists(out.resolve(name)), name + "이 없다");
         }
     }
@@ -185,7 +188,7 @@ class BundleBuilderTest {
         Bot champion = new NamedBot("WallAvoidBot", new Gen00Bot());
 
         BundleBuilder.build(generations, champion, 1L, SEEDS, SEEDS, 30, 30,
-                new RecordStore(tmp.resolve("records")), out);
+                new RecordStore(tmp.resolve("records")), out, false);
 
         ObjectMapper mapper = new ObjectMapper();
         GenerationStat[] stats = mapper.readValue(
@@ -206,7 +209,8 @@ class BundleBuilderTest {
         build(out2, tmp.resolve("records2"));
 
         for (String name : new String[]{
-                "gallery.json", "generations.json", "loop-history.json", "roundrobin.json"}) {
+                "gallery.json", "generations.json", "loop-history.json", "roundrobin.json",
+                "diagnosis.json"}) {
             byte[] first = Files.readAllBytes(out1.resolve(name));
             byte[] second = Files.readAllBytes(out2.resolve(name));
             assertArrayEquals(first, second,
@@ -258,7 +262,7 @@ class BundleBuilderTest {
         List<Bot> generations = List.of(new Gen00Bot());
         assertThrows(IllegalArgumentException.class, () ->
                 BundleBuilder.build(generations, new Gen00Bot(), 1L, SEEDS, null, 30, 30,
-                        new RecordStore(tmp.resolve("records")), tmp.resolve("data")));
+                        new RecordStore(tmp.resolve("records")), tmp.resolve("data"), false));
     }
 
     @Test
@@ -266,7 +270,114 @@ class BundleBuilderTest {
         List<Bot> generations = List.of(new Gen00Bot());
         assertThrows(IllegalArgumentException.class, () ->
                 BundleBuilder.build(generations, new Gen00Bot(), 1L, SEEDS, List.of(), 30, 30,
-                        new RecordStore(tmp.resolve("records")), tmp.resolve("data")));
+                        new RecordStore(tmp.resolve("records")), tmp.resolve("data"), false));
+    }
+
+    // --- holdoutScoreRate: 화면 6이 과적합 격차를 그리려면 번들에 실려야 한다 ---
+
+    @Test
+    void 세대_통계에_홀드아웃_승률이_실린다(@TempDir Path tmp) throws Exception {
+        Path records = tmp.resolve("records");
+        Path out = tmp.resolve("data");
+        RecordStore store = new RecordStore(records);
+        store.saveChallengeReport(0, 1, new ChallengeReport(
+                "Gen00Bot", "Gen00Bot", true, 0.72, 0.60, 66, 12, 22, 0.58, List.of()));
+
+        BundleBuilder.build(List.of(new Gen00Bot()), new Gen00Bot(),
+                1L, List.of(1L, 2L), List.of(1L, 2L), 30, 30, store, out, false);
+
+        List<GenerationStat> stats = new ObjectMapper().readValue(
+                out.resolve("generations.json").toFile(),
+                new TypeReference<List<GenerationStat>>() {});
+
+        assertEquals(0.58, stats.get(0).holdoutScoreRate(), 1e-9);
+    }
+
+    @Test
+    void 승격_기록이_없는_세대의_홀드아웃은_NaN으로_실린다(@TempDir Path tmp) throws Exception {
+        Path out = tmp.resolve("data");
+        BundleBuilder.build(List.of(new Gen00Bot()), new Gen00Bot(),
+                1L, List.of(1L, 2L), List.of(1L, 2L), 30, 30,
+                new RecordStore(tmp.resolve("records")), out, false);
+
+        List<GenerationStat> stats = new ObjectMapper().readValue(
+                out.resolve("generations.json").toFile(),
+                new TypeReference<List<GenerationStat>>() {});
+
+        assertTrue(Double.isNaN(stats.get(0).holdoutScoreRate()));
+    }
+
+    // --- diagnosis.json: 화면 5가 읽을 턴별 진단 ---
+
+    @Test
+    void 진단_파일은_갤러리와_같은_순서로_짝지어진다(@TempDir Path tmp) throws Exception {
+        Path out = tmp.resolve("data");
+        BundleBuilder.build(List.of(new Gen00Bot()), new Gen00Bot(),
+                1L, List.of(1L, 2L), List.of(1L, 2L), 30, 30,
+                new RecordStore(tmp.resolve("records")), out, false);
+
+        ObjectMapper mapper = new ObjectMapper();
+        List<Replay> gallery = mapper.readValue(out.resolve("gallery.json").toFile(),
+                new TypeReference<List<Replay>>() {});
+        List<MatchDiagnosis> diagnosis = mapper.readValue(out.resolve("diagnosis.json").toFile(),
+                new TypeReference<List<MatchDiagnosis>>() {});
+
+        assertEquals(gallery.size(), diagnosis.size(), "진단이 갤러리와 개수가 다르다");
+        for (int i = 0; i < gallery.size(); i++) {
+            assertEquals(gallery.get(i).matchId(), diagnosis.get(i).matchId(),
+                    i + "번째 진단이 다른 경기의 것이다");
+        }
+    }
+
+    /**
+     * (보강) 위 테스트는 세대가 하나뿐이라 gallery·diagnosis 모두 길이
+     * 1이다 — "한 원소짜리 진단을 하나 낸다"는 어떤 구현도 이 조건에서는
+     * 통과한다(예: matchId를 무시하고 항상 gallery.get(0)의 matchId를
+     * 복사하는 구현조차 걸리지 않는다). 세대 셋으로 늘려 matchId가
+     * 실제로 인덱스별로 다른 값을 갖는 상황을 만들고, 뒤섞인 순서로
+     * 배정하는 회귀를 이 테스트가 잡을 수 있는지 검증한다.
+     */
+    @Test
+    void 세대가_여럿이면_진단_각각이_해당_인덱스의_갤러리_경기와_짝지어진다(@TempDir Path tmp) throws Exception {
+        Path out = tmp.resolve("data");
+        build(out, tmp.resolve("records"));
+
+        ObjectMapper mapper = new ObjectMapper();
+        List<Replay> gallery = mapper.readValue(out.resolve("gallery.json").toFile(),
+                new TypeReference<List<Replay>>() {});
+        List<MatchDiagnosis> diagnosis = mapper.readValue(out.resolve("diagnosis.json").toFile(),
+                new TypeReference<List<MatchDiagnosis>>() {});
+
+        assertEquals(3, gallery.size(), "픽스처가 세대 셋을 쓰는 전제가 깨졌다");
+        assertEquals(3, diagnosis.size());
+
+        List<String> galleryIds = gallery.stream().map(Replay::matchId).toList();
+        assertEquals(galleryIds.size(), galleryIds.stream().distinct().count(),
+                "matchId가 세대마다 달라야 이 테스트가 뒤섞인 순서를 잡을 수 있다");
+
+        for (int i = 0; i < gallery.size(); i++) {
+            assertEquals(gallery.get(i).matchId(), diagnosis.get(i).matchId(),
+                    i + "번째 진단이 다른 경기의 것이다");
+        }
+    }
+
+    @Test
+    void 진단의_reach는_봇당_턴수만큼_있다(@TempDir Path tmp) throws Exception {
+        Path out = tmp.resolve("data");
+        BundleBuilder.build(List.of(new Gen00Bot()), new Gen00Bot(),
+                1L, List.of(1L, 2L), List.of(1L, 2L), 30, 30,
+                new RecordStore(tmp.resolve("records")), out, false);
+
+        ObjectMapper mapper = new ObjectMapper();
+        Replay r = mapper.readValue(out.resolve("gallery.json").toFile(),
+                new TypeReference<List<Replay>>() {}).get(0);
+        MatchDiagnosis d = mapper.readValue(out.resolve("diagnosis.json").toFile(),
+                new TypeReference<List<MatchDiagnosis>>() {}).get(0);
+
+        assertEquals(2, d.reach().length, "reach의 바깥 인덱스는 봇이어야 한다");
+        assertEquals(r.result().turns(), d.reach()[0].length,
+                "reach의 안쪽 길이가 경기 턴 수와 다르다");
+        assertEquals(r.result().turns(), d.loss()[1].length);
     }
 
     /** 이름을 생성자로 지정할 수 있는 래퍼. 이름 충돌 시나리오 전용. */

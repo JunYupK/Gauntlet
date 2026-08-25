@@ -1,0 +1,74 @@
+[
+  {
+    "generation" : 0,
+    "botName" : "StraightBot",
+    "available" : true,
+    "file" : "sources/gen-00.java"
+  },
+  {
+    "generation" : 1,
+    "botName" : "Demo01Bot",
+    "available" : true,
+    "file" : "sources/gen-01.java"
+  },
+  {
+    "generation" : 2,
+    "botName" : "Demo02Bot",
+    "available" : true,
+    "file" : "sources/gen-02.java"
+  },
+  {
+    "generation" : 3,
+    "botName" : "Demo03Bot",
+    "available" : true,
+    "file" : "sources/gen-03.java"
+  },
+  {
+    "generation" : 4,
+    "botName" : "Demo04Bot",
+    "available" : true,
+    "file" : "sources/gen-04.java"
+  },
+  {
+    "generation" : 5,
+    "botName" : "Demo05Bot",
+    "available" : true,
+    "file" : "sources/gen-05.java"
+  },
+  {
+    "generation" : 6,
+    "botName" : "Demo06Bot",
+    "available" : true,
+    "file" : "sources/gen-06.java"
+  },
+  {
+    "generation" : 7,
+    "botName" : "Demo07Bot",
+    "available" : true,
+    "file" : "sources/gen-07.java"
+  },
+  {
+    "generation" : 8,
+    "botName" : "Demo08Bot",
+    "available" : true,
+    "file" : "sources/gen-08.java"
+  },
+  {
+    "generation" : 9,
+    "botName" : "Demo09Bot",
+    "available" : true,
+    "file" : "sources/gen-09.java"
+  },
+  {
+    "generation" : 10,
+    "botName" : "Demo10Bot",
+    "available" : true,
+    "file" : "sources/gen-10.java"
+  },
+  {
+    "generation" : 11,
+    "botName" : "Demo11Bot",
+    "available" : true,
+    "file" : "sources/gen-11.java"
+  }
+]
