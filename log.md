@@ -2968,6 +2968,61 @@ record && npm run build` — 진짜 번들(세대 1개) 성공, 콘솔-오류 �
 
 ---
 
+## D87 — 전체 브랜치 리뷰 최종 수정 파동: Minor 3건 (M1~M3)
+
+14태스크 계획 전체 리뷰(판정: 병합 가능)가 남긴 Minor 세 건을 한 파동으로
+처리했다.
+
+**M1 — `CLAUDE.md` §13이 "화면은 재계산하지 않는다"를 과장했다.** §13은
+그동안 "그 밖의 어떤 화면 코드에도 나눗셈·비교로 새 판정을 만들어 넣지
+않는다"고 써 있었는데, 이미 커밋된 코드가 이를 어기고 있었다 —
+`web/src/lib/curve.ts`의 `r3Ratio`(나눗셈)·`r3Passed`(`>= 10` 비교),
+`web/src/lib/heatmap.ts`의 `overfitGap`(뺄셈)·`cycles`(`> 0.5` 비교).
+리뷰 판단: **코드가 맞고 문서가 틀렸다.** 이 네 함수는 리플레이를 다시
+채점하는 게 아니라 하네스가 **이미 판정한** 원시값(`avgSurvivalTurns`·
+`scoreRate`·`holdoutScoreRate`·라운드로빈 승률 행렬)을 조합해 발표용
+수량을 뽑을 뿐이다 — 문서가 이미 허용해 온 과적합 격차 뺄셈과 같은
+부류다. R1이 실제로 금지하는 것은 **엔진 규칙의 재구현**(디코더가 하는
+일)이지, 이미 판정된 값 위의 산술이 아니다. §13만 고쳐 그 구분을 명시적으로
+적었다 — (a) 화면은 하네스가 낸 값을 다시 판정하지 않는다, (b) 리플레이
+디코더만이 유일한 엔진 규칙 재구현이고 그래서만 conformance 테스트가
+붙는다, (c) 이미 판정된 원시값을 조합하는 산술(R3 배율/합격선, 과적합
+격차, 순환 우위)은 새 판정이 아니므로 허용한다 — 단 이 여지가 `avgSurvivalTurns`
+같은 값 자체를 화면이 원시 리플레이에서 다시 유도해도 된다는 뜻은 아니라고
+못박았다. §1~§12(봇 하네스 규칙서)는 손대지 않았다.
+
+**M2 — 데모 소스 스텁이 Gen 0을 잘못 설명한다.** `FixtureCommand.draftSource`가
+모든 세대에 "depth=N의 벽회피봇"·"depth=N수 앞을 내다봐"라고 썼는데,
+세대 0은 `StraightBot`(방향 유지, 내다보기·회피 전혀 없음)이지 깊이
+0의 벽회피봇이 아니다 — 이 스텁이 `web/fixtures/data/sources/gen-00.java`로
+커밋되어 화면 4(코드 diff)가 그대로 보여준다. `draftSource`를 `gen == 0`
+분기로 나눠, 세대 0에는 "직진봇 — 방향을 계속 유지하다가 첫 벽에서
+죽는다. 내다보기·회피 없음"을, 세대 1..11은 기존 "depth=N 앞을
+내다봐 가장 넓은 쪽을 고른다"를 그대로 남겼다. `FixtureCommandTest`는
+스텁 텍스트를 assert하지 않아 수정이 불필요했다.
+
+고친 뒤 데모 픽스처가 바뀌므로 재생성·재검증했다:
+`./gradlew fixture` → `ARENA_EXIT_CODE=0`, `web/fixtures/data/sources/gen-00.java`가
+"직진봇 StraightBot — 방향을 계속 유지하다가 첫 벽에서 죽는다. 내다보기·
+회피 없음"으로 바뀐 것 확인. `gen-01.java`..`gen-11.java`는 문자
+그대로 불변(diff 없음) — 코드 변경이 세대 0 갈래에만 닿았다는 뜻이다.
+이어서 `git add web/fixtures` 후 `./gradlew fixture`를 한 번 더 돌려
+`git diff --exit-code -- web/fixtures`가 빈 diff임을 확인했다(R1:
+재실행 바이트 동일).
+
+**M3 — `DEAD_OVERLAY` 죽은 export.** `web/src/lib/colors.ts`가
+브리프에서 넘어온 `DEAD_OVERLAY`를 여전히 export하고 있었는데,
+`web/src`를 grep해도 어디서도 import하지 않는다 — 죽음 디밍은 CSS
+`grayscale`로 하고 있어(D 어딘가) 애초에 안 쓰인다. 참조가 정말 없는
+것을 확인한 뒤 export를 지웠다.
+
+**검증.** `npm test` 94/94 GREEN. `npm run build:demo` 성공(정적
+export). `./gradlew test` BUILD SUCCESSFUL, 232 Java 테스트 전부
+통과(모듈별 surefire XML `tests=` 합산으로 재확인). 픽스처 드리프트
+2회 실행 확인 위 M2에 적음.
+
+---
+
 ## 다음 단계
 
 - [x] 스펙 문서 작성 및 자체 검토

@@ -418,16 +418,31 @@ public final class FixtureCommand {
      * 시도의 소스 스텁. 진짜 컴파일 가능한 소스는 아니다 — 이 파일은
      * {@code sources/}로 그대로 노출되는 화면 4의 재료이므로, "이 시도가
      * 무엇을 시도했는지"가 읽는 사람에게 보이는 선에서 충분하다.
+     *
+     * <p>세대 0은 {@link StraightBot}이지 깊이 0의 벽회피봇이 아니다
+     * ({@link #buildGenerations} 참고) — 방향을 계속 유지하다가 첫 벽에서
+     * 죽는 직진봇으로, 내다보기도 회피도 하지 않는다. 세대 1..
+     * {@code GENERATION_COUNT-1}만 실제로 {@link #demoBot}(깊이 N 벽회피봇)이므로,
+     * 설명 문구를 세대별로 분기한다 — 세대 0에 "depth=0의 벽회피봇"이라고
+     * 쓰면 코드가 구조적으로 하지 않는 일(내다보기)을 한다고 화면 4가
+     * 거짓으로 말하게 된다.
      */
     private static String draftSource(Bot bot, int gen, int attempt, boolean accepted) {
+        String description = gen == 0
+                ? "// 직진봇 " + bot.name() + " — 방향을 계속 유지하다가 첫 벽에서 죽는다. 내다보기·회피 없음.\n"
+                : "// depth=" + gen + "의 벽회피봇 " + bot.name() + "\n";
+        String moveComment = gen == 0
+                ? "        // 현재 방향을 그대로 유지한다 — 내다보지 않는다.\n"
+                : "        // 안전한 방향 중 depth=" + gen + "수 앞을 내다봐 가장 넓은 쪽을 고른다.\n";
+
         return "// 데모 번들 — 실제 세대 루프가 만든 소스가 아니다.\n"
                 + "// gen-" + String.format(Locale.ROOT, "%02d", gen)
                 + "/attempt-" + attempt + (accepted ? " (채택)" : " (반려)") + "\n"
-                + "// depth=" + gen + "의 벽회피봇 " + bot.name() + "\n"
+                + description
                 + "public final class " + bot.name() + " implements arena.bots.Bot {\n"
                 + "    @Override public String name() { return \"" + bot.name() + "\"; }\n"
                 + "    @Override public arena.core.Direction move(arena.core.GameView view) {\n"
-                + "        // 안전한 방향 중 depth=" + gen + "수 앞을 내다봐 가장 넓은 쪽을 고른다.\n"
+                + moveComment
                 + "        throw new UnsupportedOperationException(\"데모 스텁 — 실행되지 않는다\");\n"
                 + "    }\n"
                 + "}\n";
