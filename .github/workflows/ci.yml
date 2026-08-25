@@ -128,10 +128,16 @@ jobs:
         working-directory: web
       - run: npm run build:demo
         working-directory: web
+
+      # 이 러너엔 Playwright 브라우저가 없다 — 최신 Playwright는
+      # `npm ci`/`npm install`로 브라우저를 받지 않는다(postinstall
+      # 다운로드 스크립트가 없다). 이 설치 스텝이 유일한 다운로드
+      # 지점이다.
+      - name: Playwright 브라우저 설치
+        run: npx playwright install --with-deps chromium
+        working-directory: web
       - run: npx playwright test
         working-directory: web
-        env:
-          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
 
       # 스모크가 실패했을 때 어느 화면이 왜 죽었는지 트레이스로 본다.
       - name: Playwright 리포트 (실패 시)

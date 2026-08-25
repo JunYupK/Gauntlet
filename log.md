@@ -2909,16 +2909,38 @@ SCREENS`를 두고 서버 컴포넌트인 `page.tsx`가 그걸 import해 `.map`�
 §8과 기존 `test` 잡의 D72와 같다), `git diff --exit-code -- web/fixtures`로
 드리프트를 잡는다. 기존 `test` 잡은 손대지 않았다.
 
+**[Fix round 1 정정] CI가 브라우저를 못 받아 죽는 결함을 리뷰가
+잡았다.** 처음 커밋한 `web` 잡은 `npx playwright test`에
+`PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'`만 두고 별도 설치 스텝이
+없었다. 이때 내가 남긴 "CI에서는 `npm ci`가 매번 새로 다운로드하므로
+문제없다"는 근거가 **틀렸다** — 리뷰가 npm 레지스트리로 직접
+확인시켜준 사실은 `playwright@1.56.0`/`@playwright/test@1.56.0`
+어느 쪽도 `postinstall` 스크립트를 갖지 않는다는 것이다. 최신
+Playwright는 `npm ci`/`npm install`로 브라우저를 받지 않는다 —
+브라우저는 오직 명시적인 `npx playwright install`(또는
+`--with-deps`)로만 받는다. 그러므로 실제 GitHub Actions 러너에서는
+`npm ci`가 아무 브라우저도 안 받고, 스킵 변수는 스킵할 대상 자체가
+없으며, `npx playwright test`는 곧바로 "browser executable doesn't
+exist"로 죽는다 — 로컬 9/9 통과는 이 컨테이너에 `/opt/pw-browsers`가
+이미 있어서 통과한 것일 뿐, CI가 될 것이라는 증거가 아니었다.
+고침: `npm run build:demo` 다음, `npx playwright test` 앞에
+`npx playwright install --with-deps chromium` 스텝을 추가하고,
+`PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD`는(로컬 전용 최적화라 CI에 남겨두면
+오해를 부른다) 제거했다. 로컬 흐름은 그대로다 — 이 컨테이너에선
+여전히 `playwright install`을 돌리지 않고 사전 설치된 브라우저를
+쓴다(9/9 재확인, 아래).
+
 **`@playwright/test`를 캐럿 없이 `1.56.0`으로 정확히 고정했다.**
 이 환경(`/opt/pw-browsers`)엔 Chromium 리비전 1194 하나만 있다.
 `playwright-core`의 `browsers.json`을 여러 버전(`1.50.0`~`1.56.0`)의
 npm 패키지를 직접 받아 리비전을 대조해 `1.56.0`이 정확히 1194를
 기대하는 버전임을 확인했다(`1.55.1`은 1193, `1.55.2`는 배포 없음).
 캐럿(`^1.56.0`)을 허용하면 다음 `npm install`이 조용히 더 새 버전을
-골라 다른 리비전을 찾다가 "executable doesn't exist"로 죽는다 — CI에서는
-`npm ci`가 (스킵 변수 없이) 매번 새로 다운로드하므로 문제가 없지만, 이
-샌드박스처럼 사전 설치된 브라우저 하나에 의존하는 환경에선 버전 고정이
-그 짝을 지키는 유일한 방법이다.
+골라, 그 버전의 `playwright install`이 다른 리비전을 받게 되어 이
+컨테이너의 사전 설치 브라우저(1194)와 다시 어긋난다 — 버전 고정이
+그 짝을 지키는 유일한 방법이다. (CI는 위 정정대로 매 실행마다
+`playwright install`을 명시적으로 돌리므로 애초에 사전 설치 브라우저에
+의존하지 않는다 — 버전 고정이 지키는 짝은 이 로컬 컨테이너의 것이다.)
 
 **실제 세대 1개짜리 번들로도 빌드가 됨을 확인했다.** `./gradlew record`
 (현재 레지스트리엔 `Gen00Bot` 하나) → `npm run build` 성공, 그 위에
@@ -2936,6 +2958,13 @@ GREEN(화면별 콘솔-오류 7 + 패널 수 1 + 재생 카운터 1), 위의 사
 record && npm run build` — 진짜 번들(세대 1개) 성공, 콘솔-오류 스모크
 7개 재확인 GREEN. ④`./gradlew fixture` 재실행 후 `git diff --exit-code
 -- web/fixtures` — 드리프트 없음(빈 diff).
+
+**Fix round 1 재확인.** 브라우저 설치 스텝을 넣고 스킵 변수를 뺀 뒤
+로컬에서 `npm run build:demo && npx playwright test` 9/9 GREEN 재확인
+(이 컨테이너는 여전히 사전 설치된 브라우저를 쓰고 `playwright install`을
+돌리지 않았다 — CI 전용 수정이라 로컬 흐름은 안 건드렸다). CI가 실제로
+초록인지는 이 세션에서 실행할 수 없으므로 PR에서 확인해야 한다 — 이
+정정 자체가 "로컬 통과가 CI 통과를 증명하지 않는다"는 교훈이다.
 
 ---
 
