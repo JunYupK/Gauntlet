@@ -100,6 +100,29 @@ public final class FixtureCommand {
     /** 반려 사유로 순환시킬 관문 id. 실제 관문 구현(arena-gate)의 id와 같다. */
     private static final String[] GATE_IDS = { "G2", "G3", "G4", "G5", "G6", "G7" };
 
+    /**
+     * 관문은 통과했지만 챔피언전에서 한 번 진 뒤에야 승격하는 세대(D88).
+     * 화면 3(루프 타임라인)은 챔피언전 반려(stage=CHAMPIONSHIP,
+     * verdict=REJECTED, failedGate=null)에 관문 반려와 다른 보라색을
+     * 쓰는데(D82), 예전 합성 이력은 12세대 전부가 "관문 반려들 → 곧장
+     * 챔피언전 승격"으로만 끝나서 그 색이 데모에서 한 번도 나오지
+     * 않았다. 이 세대는 여전히 승격한다 — 홀드아웃이 남아 있어야 화면
+     * 6에서도 정상적인(NaN이 아닌) 과적합 격차 막대를 보여줄 세대가
+     * 하나 이상 있다는 이 함수의 다른 절반(NO_PROMOTION_DEMO_GEN)의
+     * 짝이 된다.
+     */
+    private static final int CHAMPIONSHIP_REJECT_DEMO_GEN = 4;
+
+    /**
+     * 관문은 통과하지만 챔피언전에서 끝내 이기지 못해 승격하지 않는
+     * 세대(D88). {@link RecordStore#holdoutOf}가 이 세대에 {@link Double#NaN}을
+     * 돌려주게 되고, 화면 6(히트맵)은 그 세대를 "승격 기록 없음"으로
+     * 그린다(D85). 세대 루프에서 실제로 일어날 수 있는 정상적인
+     * 결과다 — 승격 못 한 세대가 있다는 것이 데모 데이터의 결함이
+     * 아니라, 데이터가 정직하다는 증거다.
+     */
+    private static final int NO_PROMOTION_DEMO_GEN = 8;
+
     private FixtureCommand() {}
 
     /**
@@ -329,7 +352,7 @@ public final class FixtureCommand {
      * 이미 상당히 신중한 벽회피봇(depth0)의 기준선에 맞춰진 게 아니다.
      * 즉 깨졌던 건 R3 자체가 아니라 이 데모의 세대 0 선택이었다.
      */
-    private static List<Bot> buildGenerations() {
+    static List<Bot> buildGenerations() {
         List<Bot> generations = new ArrayList<>(GENERATION_COUNT);
         generations.add(new StraightBot());
         for (int depth = 1; depth < GENERATION_COUNT; depth++) {
@@ -349,8 +372,15 @@ public final class FixtureCommand {
      * 시도 횟수 자체도 세대마다 다르게 한다({@code 1 + gen % 3}) — 모든
      * 세대가 항상 1회만에 승격하면 "1~3회 시도"라는 이력의 전제가
      * 성립하지 않는다.
+     *
+     * <p>딱 두 세대만 이 기본 틀을 벗어난다(D88, 클래스 상수 참고): 세대
+     * {@link #CHAMPIONSHIP_REJECT_DEMO_GEN}은 관문 통과 후 챔피언전에서
+     * 한 번 지고 나서야 승격하고(시도가 하나 더 붙는다), 세대
+     * {@link #NO_PROMOTION_DEMO_GEN}은 관문은 통과하지만 챔피언전에서
+     * 끝내 지고 승격하지 않는다(총 시도 수는 그대로이되 마지막 시도의
+     * 결론만 바뀐다). 나머지 열 세대는 예전과 완전히 같다.
      */
-    private static void synthesizeHistory(List<Bot> generations, RecordStore store) {
+    static void synthesizeHistory(List<Bot> generations, RecordStore store) {
         for (int gen = 0; gen < generations.size(); gen++) {
             Bot bot = generations.get(gen);
             int attempts = 1 + (gen % 3);
@@ -365,16 +395,48 @@ public final class FixtureCommand {
                         List.of(GateResult.fail(gateId, detail))));
             }
 
-            // 마지막 시도: 관문 통과 + 챔피언전 승격.
-            String source = draftSource(bot, gen, attempts, true);
-            store.saveGateReport(gen, attempts, source, new GateReport(
-                    bot.name(), true, null, "",
-                    List.of(
-                            GateResult.pass("G2"), GateResult.pass("G3"), GateResult.pass("G4"),
-                            GateResult.pass("G5"), GateResult.pass("G6"), GateResult.pass("G7"))));
+            if (gen == CHAMPIONSHIP_REJECT_DEMO_GEN) {
+                // 관문은 통과했지만 챔피언전에서 한 번 진다 — 여기서는
+                // 아직 승격하지 않았으므로 draftSource의 accepted는
+                // false다(RecordStore.acceptedSourceOf도 이 시도를
+                // "채택"으로 고르지 않는다: historyOf가 이 시도의
+                // verdict을 REJECTED로 매긴다).
+                saveGatePass(store, bot, gen, attempts, false);
+                store.saveChallengeReport(gen, attempts, rejectedChallengeReportFor(generations, gen));
 
-            store.saveChallengeReport(gen, attempts, challengeReportFor(generations, gen));
+                // 그다음 시도에서야 같은 챔피언을 이기고 승격한다.
+                int promoteAttempt = attempts + 1;
+                saveGatePass(store, bot, gen, promoteAttempt, true);
+                store.saveChallengeReport(gen, promoteAttempt, challengeReportFor(generations, gen));
+            } else if (gen == NO_PROMOTION_DEMO_GEN) {
+                // 관문은 통과하지만 챔피언전에서 져서 이 세대는 끝내
+                // 승격하지 않는다 — 승격 시도가 아예 없다.
+                saveGatePass(store, bot, gen, attempts, false);
+                store.saveChallengeReport(gen, attempts, rejectedChallengeReportFor(generations, gen));
+            } else {
+                // 마지막 시도: 관문 통과 + 챔피언전 승격.
+                saveGatePass(store, bot, gen, attempts, true);
+                store.saveChallengeReport(gen, attempts, challengeReportFor(generations, gen));
+            }
         }
+    }
+
+    /**
+     * 관문 통과(G2~G7 전부 pass) 시도 하나를 저장한다 — 승격으로
+     * 이어지든(기존 동작) 챔피언전 반려로 이어지든(D88) 관문을 통과했다는
+     * 사실 자체는 같은 모양의 {@link GateReport}로 남는다. {@code accepted}는
+     * {@link #draftSource}에 그대로 넘어가 소스 스텁 주석에 "(채택)" 또는
+     * "(반려)"를 찍는다 — 이 시도가 결국 {@link RecordStore#acceptedSourceOf}가
+     * 고를 시도인지와 일치시켜야, 화면 4(코드 diff)가 보여줄 소스와 이
+     * 주석이 서로 다른 이야기를 하지 않는다.
+     */
+    private static void saveGatePass(RecordStore store, Bot bot, int gen, int attempt, boolean accepted) {
+        String source = draftSource(bot, gen, attempt, accepted);
+        store.saveGateReport(gen, attempt, source, new GateReport(
+                bot.name(), true, null, "",
+                List.of(
+                        GateResult.pass("G2"), GateResult.pass("G3"), GateResult.pass("G4"),
+                        GateResult.pass("G5"), GateResult.pass("G6"), GateResult.pass("G7"))));
     }
 
     /**
@@ -401,6 +463,35 @@ public final class FixtureCommand {
                 challenger, champion, true,
                 scoreRate, threshold, wins, draws, losses,
                 holdoutScoreRate, List.of());
+    }
+
+    /**
+     * 챔피언전에서 진 시도의 결과(D88) — {@link #CHAMPIONSHIP_REJECT_DEMO_GEN}·
+     * {@link #NO_PROMOTION_DEMO_GEN} 둘 다 이걸 쓴다. {@code scoreRate}는
+     * 문턱(threshold) 아래로 결정적으로 고정하고, {@code holdoutScoreRate}는
+     * {@link Double#NaN}이다 — {@link ChallengeReport}의 계약(반려한
+     * 챔피언전은 홀드아웃이 없다)을 그대로 따른다. 이 값을 실은
+     * 시도끼리는 챔피언(직전 세대 또는 세대 0이면 WallAvoidBot)이
+     * {@link #challengeReportFor}와 같은 규칙으로 정해진다 — 진 상대와
+     * 나중에 이길 상대가 같은 챔피언이어야 "한 번 지고 나서야 이겼다"는
+     * 이야기가 성립한다.
+     */
+    private static ChallengeReport rejectedChallengeReportFor(List<Bot> generations, int gen) {
+        String champion = gen == 0 ? "WallAvoidBot" : generations.get(gen - 1).name();
+        String challenger = generations.get(gen).name();
+
+        double threshold = 0.60;
+        double scoreRate = threshold - 0.12;
+
+        int total = 50;
+        int draws = 4;
+        int wins = (int) Math.round(scoreRate * total - 0.5 * draws);
+        int losses = total - wins - draws;
+
+        return new ChallengeReport(
+                challenger, champion, false,
+                scoreRate, threshold, wins, draws, losses,
+                Double.NaN, List.of());
     }
 
     private static String rejectionDetail(String gateId, int gen, int attempt) {

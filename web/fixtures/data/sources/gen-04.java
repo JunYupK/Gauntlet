@@ -1,5 +1,5 @@
 // 데모 번들 — 실제 세대 루프가 만든 소스가 아니다.
-// gen-04/attempt-2 (채택)
+// gen-04/attempt-3 (채택)
 // depth=4의 벽회피봇 Demo04Bot
 public final class Demo04Bot implements arena.bots.Bot {
     @Override public String name() { return "Demo04Bot"; }

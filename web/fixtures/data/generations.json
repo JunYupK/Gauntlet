@@ -47,7 +47,7 @@
     "suicideRate" : 0.0,
     "scoreRate" : 0.5,
     "holdoutScoreRate" : 0.6699999999999999,
-    "attempts" : 2
+    "attempts" : 3
   },
   {
     "generation" : 5,
@@ -86,7 +86,7 @@
     "occupancy" : 0.3135185185185185,
     "suicideRate" : 0.0,
     "scoreRate" : 0.25,
-    "holdoutScoreRate" : 0.7899999999999999,
+    "holdoutScoreRate" : "NaN",
     "attempts" : 3
   },
   {

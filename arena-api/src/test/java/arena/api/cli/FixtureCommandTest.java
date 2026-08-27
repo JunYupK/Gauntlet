@@ -5,6 +5,7 @@ import arena.core.Match;
 import arena.core.Replay;
 import arena.tournament.AttemptRecord;
 import arena.tournament.GenerationStat;
+import arena.tournament.RecordStore;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
@@ -124,6 +125,69 @@ class FixtureCommandTest {
                 "모든 세대가 시도 1회만에 끝났다 — \"1~3회 시도\"라는 합성 이력의 전제가 깨졌다: " + totalAttempts);
         assertTrue(rejectedAttempts >= 3,
                 "반려된 시도가 거의 없다 — 화면 3의 반려 이력이 빈약하다: " + rejectedAttempts);
+    }
+
+    /**
+     * 화면 3(루프 타임라인)은 챔피언전 반려(stage=CHAMPIONSHIP,
+     * verdict=REJECTED, failedGate=null)를 관문 반려와 다른 보라색으로
+     * 그린다(D82). 예전 합성 이력은 모든 세대가 "관문 반려들 → 챔피언전
+     * 승격"으로만 끝나서 이 상태가 데모에서 한 번도 나오지 않았다 —
+     * 이 테스트는 그게 다시 그렇게 되돌아가지 못하게 잠근다.
+     *
+     * {@link RecordStore#historyOf}를 통해서만 읽는다 — synthesizeHistory가
+     * 만든 값을 자기 자신이 다시 읽어 비교하면 구현이 잘못돼도 항상
+     * 통과하는 테스트가 된다.
+     */
+    @Test
+    void 루프_이력에_챔피언전_반려_시도가_있다(@TempDir Path tmp) {
+        List<Bot> generations = FixtureCommand.buildGenerations();
+        RecordStore store = new RecordStore(tmp);
+        FixtureCommand.synthesizeHistory(generations, store);
+
+        boolean hasChampionshipReject = false;
+        for (int gen = 0; gen < generations.size(); gen++) {
+            for (AttemptRecord record : store.historyOf(gen)) {
+                if ("CHAMPIONSHIP".equals(record.stage()) && "REJECTED".equals(record.verdict())) {
+                    hasChampionshipReject = true;
+                }
+            }
+        }
+
+        assertTrue(hasChampionshipReject,
+                "합성 이력에 챔피언전 반려(stage=CHAMPIONSHIP, verdict=REJECTED) 시도가 하나도 없다 — "
+                        + "화면 3의 챔피언전 반려 색이 데모에서 검증되지 않는다");
+    }
+
+    /**
+     * 화면 6(히트맵)은 승격한 시도가 없는 세대의 홀드아웃을 {@code NaN}으로
+     * 받아 "승격 기록 없음"을 그린다(D85). 예전 합성 이력은 12세대 전부가
+     * 승격해서 이 branch가 데모에서 한 번도 나오지 않았다 — 이 테스트는
+     * (a) 승격하지 않은 세대가 최소 하나(홀드아웃 NaN) 있고, (b) 정상적으로
+     * 승격한 세대도 최소 하나(홀드아웃 유한값) 남아 있어야 함을 함께
+     * 잠근다. {@code Double.isNaN}으로 엄격히 검사한다 — {@code assertEquals}로
+     * NaN을 비교하면 NaN != NaN이라 항상 실패해 버그를 숨긴다.
+     */
+    @Test
+    void 세대_중_일부는_홀드아웃이_없고_일부는_유한하다(@TempDir Path tmp) {
+        List<Bot> generations = FixtureCommand.buildGenerations();
+        RecordStore store = new RecordStore(tmp);
+        FixtureCommand.synthesizeHistory(generations, store);
+
+        boolean hasMissingHoldout = false;
+        boolean hasFiniteHoldout = false;
+        for (int gen = 0; gen < generations.size(); gen++) {
+            double holdout = store.holdoutOf(gen);
+            if (Double.isNaN(holdout)) {
+                hasMissingHoldout = true;
+            } else {
+                hasFiniteHoldout = true;
+            }
+        }
+
+        assertTrue(hasMissingHoldout,
+                "승격하지 못한 세대가 하나도 없다 — 화면 6의 \"승격 기록 없음\"이 데모에서 검증되지 않는다");
+        assertTrue(hasFiniteHoldout,
+                "승격한 세대가 하나도 없다 — 정상적으로 승격한 세대의 과적합 격차를 화면 6에서 볼 수 없다");
     }
 
     private static double averageTurns(Bot bot, int n) {
