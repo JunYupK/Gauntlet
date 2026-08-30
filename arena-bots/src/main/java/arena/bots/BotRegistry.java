@@ -4,6 +4,7 @@ import arena.bots.baseline.RandomBot;
 import arena.bots.baseline.StraightBot;
 import arena.bots.baseline.WallAvoidBot;
 import arena.bots.gen.Gen00Bot;
+import arena.bots.gen.Gen01Bot;
 
 import java.util.Comparator;
 import java.util.HashSet;
@@ -65,7 +66,8 @@ public final class BotRegistry {
     private static final Pattern GENERATION_NAME = Pattern.compile("Gen\\d+Bot");
 
     private static final List<Bot> GENERATIONS = List.of(
-            new Gen00Bot()
+            new Gen00Bot(),
+            new Gen01Bot()
             // 세대가 승격될 때마다 여기에 추가한다.
     );
 
