@@ -256,11 +256,14 @@ CODE=$(./gradlew gate -Pbot=Gen07Bot | grep -o 'ARENA_EXIT_CODE=[0-3]' | tail -1
 문자열을 내놓는다 — 스크립트는 빈 값을 성공이 아니라 3과 같이 다뤄야
 한다.
 
-**절차상** `gate`를 먼저 통과시키고 나서 `challenge`를 돌린다 — 이건
-관문이 강제하는 게 아니다. `ChallengeCommand.run`은 gate 리포트를 전혀
-참조하지 않고 곧바로 `Championship.judge`를 부르므로, gate를 안 돌리고
-`challenge`만 실행해도 기계적으로 막히지 않는다. 그래도 순서를 지키는
-이유는 단순하다 — G2~G7을 안 거친 봇은 애초에 예외를 던지거나 무상태가
+**절차상** `gate`를 먼저 통과시키고 나서 `challenge`를 돌린다. `ChallengeCommand`는
+챔피언전 결과를 gate가 연 그 attempt에 이어 기록한다(`RecordStore.latestAttempt`) —
+그래서 그 세대에 gate가 연 attempt가 하나도 없으면(`latestAttempt == 0`)
+`Championship.judge`를 부르기도 전에 종료 코드 2로 막힌다. 다만 이건
+"attempt가 열려 있는가"만 보는 것이지 gate의 통과/반려 **내용**까지
+검사하는 게 아니다 — gate가 반려한 봇이라도 그 세대에 attempt가 이미
+열려 있으면 `challenge`는 그대로 진행된다. 순서를 지키는 본래 이유는
+여전히 유효하다 — G2~G7을 안 거친 봇은 애초에 예외를 던지거나 무상태가
 아닐 수 있고, `challenge`는 그런 결함을 잡게 설계돼 있지 않다.
 `challenge`는 심사 시드 1‥50에서 챔피언과 교대 좌석으로 붙는다.
 **승점 승률이 60% 이상**
