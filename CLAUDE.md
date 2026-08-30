@@ -303,8 +303,12 @@ CODE=$(./gradlew gate -Pbot=Gen07Bot | grep -o 'ARENA_EXIT_CODE=[0-3]' | tail -1
 - **반려당한 코드는 지우지 않는다.** `records/gen-NN/attempt-M/`에 그대로
   남는다
 - **한 세대에 5회까지 시도할 수 있다.** 초과하면 실험을 종료하고 수렴으로
-  선언한다(스펙 §5 — `RecordStore.nextAttempt`는 시도 번호를 셀 뿐 이
-  한도 자체를 강제하지 않는다. 세대 루프가 강제할 몫이다)
+  선언한다(스펙 §5). `RecordStore.nextAttempt` 자신은 시도 번호를 셀 뿐
+  한도를 모르지만, `gate`가 6번째 attempt를 열기 전에 그 값을 검사해
+  `CONVERGED — 세대 N은 재시도 5회를 소진했다`를 찍고 종료 코드 1로
+  거부한다(`GateCommand.run`) — 판정도 기록도 attempt-6 디렉터리도
+  생기지 않는다. 그래서 loop-history에는 세대당 attempt가 최대 5개까지만
+  나타난다
 - **베이스라인 3종(StraightBot, RandomBot, WallAvoidBot)은 동결이다.**
   한번 커밋한 뒤 수정하지 않는다(§4 참고)
 

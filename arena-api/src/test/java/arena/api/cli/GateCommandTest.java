@@ -98,6 +98,30 @@ class GateCommandTest {
                 "베이스라인 이름으로 세대 디렉터리가 생겼다");
     }
 
+    /**
+     * 스펙 §5: 세대당 재시도는 5회가 한도다. attempt 1‥5가 이미 채워진
+     * 세대에서 6번째 gate를 열려 하면 판정·기록 전에 CONVERGED로 거부돼야
+     * 한다(코드 1) — attempt-6 디렉터리 자체가 생기면 안 된다.
+     *
+     * BotRegistry에 등록된 세대 봇은 지금 Gen00Bot 하나뿐이라(BotRegistry
+     * GENERATIONS) 봇 이름은 "Gen00Bot"을 그대로 쓰고, 대신 attempt
+     * 기록을 세대 0 아래(디스크상 "gen-00", 두 자리 zero-padding)에
+     * 직접 채워 넣어 "이미 5회를 소진한 세대"를 재현한다.
+     */
+    @Test
+    void 여섯번째_시도는_CONVERGED로_거부된다(@TempDir Path records) {
+        RecordStore store = new RecordStore(records);
+        for (int i = 1; i <= 5; i++) {
+            store.saveGateReport(0, i, "class Gen00Bot{}", failingReport("Gen00Bot"));
+        }
+
+        int code = GateCommand.run("Gen00Bot", records, bot -> passingReport(bot.name()));
+
+        assertEquals(1, code, "6번째 개방은 판정 거부(1)여야 한다");
+        assertFalse(Files.exists(records.resolve("gen-00").resolve("attempt-6")),
+                "5회를 소진했는데 attempt-6이 열렸다");
+    }
+
     private static GateReport passingReport(String botName) {
         return new GateReport(botName, true, null, "", List.of(
                 GateResult.pass("G2"), GateResult.pass("G3"), GateResult.pass("G4"),

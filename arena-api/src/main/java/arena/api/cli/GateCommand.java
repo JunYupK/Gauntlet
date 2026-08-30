@@ -57,6 +57,23 @@ public final class GateCommand {
             return 2;
         }
 
+        int generation = generationOf(botName);
+        RecordStore store = null;
+        if (generation >= 0) {
+            store = new RecordStore(recordsRoot);
+            // 스펙 §5: 세대당 재시도는 5회가 한도다. 6번째를 열려는
+            // 시도는 판정도 기록도 하지 않고 여기서 곧장 거부한다 —
+            // 그래야 attempt-6 디렉터리 자체가 생기지 않는다. 예전에는
+            // CLAUDE.md §10이 말하듯 RecordStore.nextAttempt가 한도를
+            // 넘겨도 6, 7, ...을 계속 내줬고, 한도를 강제할 책임은
+            // "세대 루프"라는 아직 없는 코드에 떠넘겨져 있었다(R2 —
+            // 기계 판정이어야 할 규칙이 사람의 재량에 맡겨져 있었다).
+            if (store.nextAttempt(generation) > 5) {
+                System.out.println("CONVERGED — 세대 " + generation + "은 재시도 5회를 소진했다");
+                return 1;
+            }
+        }
+
         GateReport report = judge.apply(bot);
 
         // 통과든 반려든 똑같이 남긴다. 예전에는 통과 시 여기서 곧장
@@ -68,9 +85,7 @@ public final class GateCommand {
         // RecordStore.historyOf의 PASSED/GATE 갈래가 프로덕션에서
         // 도달 가능해진다 — 그전까지는 통과한 gate-report.json이 디스크에
         // 존재할 수 없어 죽은 코드였다.
-        int generation = generationOf(botName);
-        if (generation >= 0) {
-            RecordStore store = new RecordStore(recordsRoot);
+        if (store != null) {
             store.saveGateReport(generation, store.nextAttempt(generation),
                     readSourceOrPlaceholder(botName), report);
         }
