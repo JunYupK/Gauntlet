@@ -11,11 +11,16 @@ import arena.tournament.RecordStore;
 import java.nio.file.Path;
 
 /**
- * 현 챔피언과 100경기를 붙여 승격 여부를 판정한다.
+ * 도전자보다 한 세대 낮은 챔피언과 100경기를 붙여 승격 여부를 판정한다.
+ * 챔피언은 {@link BotRegistry#championFor(Bot)}로 고른다 — 등록된 세대 중
+ * 도전자 세대 번호보다 낮은 최댓값이다. {@code latestGeneration()}(=가장
+ * 높은 등록 세대)을 쓰지 않는 이유는, 도전자 {@code GenN}이 붙으려면 그
+ * 자신이 등록돼 있어야 하고 그러면 {@code latestGeneration()}도 {@code GenN}이
+ * 되어 도전자==챔피언이 되기 때문이다.
  *
- * {@code botName}이 {@link BotRegistry}에 없으면 {@link GateCommand}와
- * 같은 이유로 여기서 붙잡아 종료 코드 2를 낸다 — 반려(코드 1)와는
- * 다른 실패다.
+ * {@code botName}이 {@link BotRegistry}에 없거나, {@code championFor}가
+ * 도전자보다 낮은 세대를 찾지 못하면(도전자가 Gen 0) 여기서 붙잡아
+ * 종료 코드 2를 낸다 — 둘 다 호출자 잘못이지 대전 반려(코드 1)가 아니다.
  */
 public final class ChallengeCommand {
 
@@ -23,17 +28,12 @@ public final class ChallengeCommand {
 
     public static int run(String botName) {
         Bot challenger;
+        Bot champion;
         try {
             challenger = BotRegistry.byName(botName);
+            champion = BotRegistry.championFor(challenger);
         } catch (IllegalArgumentException e) {
             System.out.println(e.getMessage());
-            return 2;
-        }
-
-        Bot champion = BotRegistry.latestGeneration();
-
-        if (challenger.name().equals(champion.name())) {
-            System.out.println("도전자가 현 챔피언과 같다: " + botName);
             return 2;
         }
 

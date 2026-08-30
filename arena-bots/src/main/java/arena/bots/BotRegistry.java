@@ -178,6 +178,27 @@ public final class BotRegistry {
                 .orElseThrow(() -> new IllegalStateException("등록된 세대 봇이 없다"));
     }
 
+    /**
+     * 도전자 세대보다 번호가 낮은 최고 세대 = 이번 챔피언. {@code GENERATIONS}로
+     * 부른다. {@code latestGeneration()}(=가장 높은 등록 세대)을 쓰지 않는
+     * 이유는, 도전자 {@code GenN}이 붙으려면 그 자신이 등록돼 있어야 하고
+     * 그러면 {@code latestGeneration()}도 {@code GenN}이 되어 도전자==챔피언이
+     * 되기 때문이다. 실제 증분 루프에선 {@code GenN}이 {@code GenN-1}과
+     * 붙어야 한다.
+     */
+    public static Bot championFor(Bot challenger) {
+        return championFor(challenger, GENERATIONS);
+    }
+
+    static Bot championFor(Bot challenger, List<Bot> generations) {
+        int challengerGen = generationNumber(challenger);
+        return generations.stream()
+                .filter(b -> generationNumber(b) < challengerGen)
+                .max(Comparator.comparingInt(BotRegistry::generationNumber))
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "챔피언이 없다 — " + challenger.name() + "보다 낮은 세대가 등록돼 있지 않다"));
+    }
+
     public static List<Bot> baselines() {
         return BASELINES;
     }
