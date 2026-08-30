@@ -456,6 +456,26 @@ class RecordStoreTest {
                 "반려만 있는 세대는 채택된 소스가 없어야 한다");
     }
 
+    // --- latestAttempt: gate가 연 attempt에 challenge가 이어 쓴다 ---
+
+    @Test
+    void gate_다음_challenge는_같은_attempt에_두_리포트를_남긴다(@TempDir Path tmp) {
+        RecordStore store = new RecordStore(tmp);
+        int attempt = store.nextAttempt(5);                 // 1
+        store.saveGateReport(5, attempt, "class Gen05Bot{}", passed());
+        store.saveChallengeReport(5, store.latestAttempt(5), challengeRejected());
+
+        // 한 attempt 디렉터리에 두 파일이 함께 있어야 한다
+        assertTrue(Files.exists(tmp.resolve("gen-05/attempt-1/gate-report.json")));
+        assertTrue(Files.exists(tmp.resolve("gen-05/attempt-1/championship.json")));
+        assertFalse(Files.exists(tmp.resolve("gen-05/attempt-2")));
+    }
+
+    @Test
+    void 시도가_없는_세대의_latestAttempt는_0이다(@TempDir Path tmp) {
+        assertEquals(0, new RecordStore(tmp).latestAttempt(5));
+    }
+
     /**
      * (보강) 위 두 테스트는 채택된 시도가 항상 디스크상 "마지막" 시도이기도
      * 하다 — verdict를 전혀 안 보고 "가장 나중 시도의 bot.java를 그냥

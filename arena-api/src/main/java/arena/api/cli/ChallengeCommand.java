@@ -21,6 +21,13 @@ import java.nio.file.Path;
  * {@code botName}이 {@link BotRegistry}에 없거나, {@code championFor}가
  * 도전자보다 낮은 세대를 찾지 못하면(도전자가 Gen 0) 여기서 붙잡아
  * 종료 코드 2를 낸다 — 둘 다 호출자 잘못이지 대전 반려(코드 1)가 아니다.
+ *
+ * 챔피언전 결과는 {@code gate}가 이미 열어 둔 attempt 디렉터리에 이어
+ * 기록한다({@link RecordStore#latestAttempt(int)}) — {@code nextAttempt}를
+ * 쓰면 gate가 쓴 attempt-M 다음의 attempt-(M+1)에 홀로 떨어져,
+ * gate-report.json과 championship.json이 같은 디렉터리에 있어야 한다는
+ * 스펙 §8.3의 전제가 깨진다. {@code latestAttempt}가 0이면(선행 gate가
+ * 없어 열린 attempt가 없다는 뜻) 기록하지 않고 종료 코드 2를 낸다.
  */
 public final class ChallengeCommand {
 
@@ -34,6 +41,14 @@ public final class ChallengeCommand {
             champion = BotRegistry.championFor(challenger);
         } catch (IllegalArgumentException e) {
             System.out.println(e.getMessage());
+            return 2;
+        }
+
+        int generation = GateCommand.generationOf(botName);
+        RecordStore store = new RecordStore(Path.of("records"));
+        int attempt = generation >= 0 ? store.latestAttempt(generation) : -1;
+        if (generation >= 0 && attempt == 0) {
+            System.out.println("기록된 attempt가 없다 — " + botName + "에 대해 gate를 먼저 돌려야 한다");
             return 2;
         }
 
@@ -58,10 +73,8 @@ public final class ChallengeCommand {
             }
         }
 
-        int generation = GateCommand.generationOf(botName);
         if (generation >= 0) {
-            RecordStore store = new RecordStore(Path.of("records"));
-            store.saveChallengeReport(generation, store.nextAttempt(generation), report);
+            store.saveChallengeReport(generation, attempt, report);
         }
         return report.promoted() ? 0 : 1;
     }
