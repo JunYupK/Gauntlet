@@ -46,8 +46,9 @@ class BotRegistryTest {
     void allGenerations은_등록된_유일한_세대를_그대로_돌려준다() {
         var generations = BotRegistry.allGenerations();
 
-        assertEquals(1, generations.size(), "등록된 세대 수가 바뀌었다면 이 테스트도 같이 갱신한다");
+        assertEquals(2, generations.size(), "등록된 세대 수가 바뀌었다면 이 테스트도 같이 갱신한다");
         assertEquals("Gen00Bot", generations.get(0).name());
+        assertEquals("Gen01Bot", generations.get(1).name());
     }
 
     // --- 최신 세대: get(size-1)과 latestGeneration()을 서로 비교하면
@@ -70,7 +71,26 @@ class BotRegistryTest {
 
     @Test
     void latestGeneration은_실제_등록된_최신_세대를_돌려준다() {
-        assertEquals("Gen00Bot", BotRegistry.latestGeneration().name());
+        assertEquals("Gen01Bot", BotRegistry.latestGeneration().name());
+    }
+
+    // --- 챔피언 선택: 도전자보다 한 세대 낮은 최고 세대가 챔피언이다 ---
+
+    @Test
+    void championFor는_도전자보다_한_세대_낮은_최고_세대를_고른다() {
+        Bot g0 = fakeBot("Gen00Bot");
+        Bot g1 = fakeBot("Gen01Bot");
+        Bot g2 = fakeBot("Gen02Bot");
+        List<Bot> gens = List.of(g0, g1, g2);
+        assertEquals("Gen01Bot", BotRegistry.championFor(g2, gens).name());
+        assertEquals("Gen00Bot", BotRegistry.championFor(g1, gens).name());
+    }
+
+    @Test
+    void championFor는_Gen0_아래_챔피언이_없으면_거부한다() {
+        Bot g0 = fakeBot("Gen00Bot");
+        assertThrows(IllegalArgumentException.class,
+                () -> BotRegistry.championFor(g0, List.of(g0)));
     }
 
     // --- 등록 검증: 클래스 초기화가 강제하는 세 규칙을 임의의 목록으로 직접 찌른다 ---

@@ -120,6 +120,15 @@ public final class RecordStore {
     }
 
     /**
+     * 현재 존재하는 가장 큰 attempt 번호. 아직 없으면 0. gate가 연 attempt에
+     * challenge가 이어 쓰기 위한 것이다 — nextAttempt는 "다음 쓸 번호"라 gate가
+     * 이미 연 attempt를 가리키지 못한다.
+     */
+    public int latestAttempt(int generation) {
+        return nextAttempt(generation) - 1;
+    }
+
+    /**
      * {@code attempt-<숫자>} 형식인가. 접두사만 보고 통과시키면 안 된다 —
      * {@code attempt-3.bak}이나 {@code attempt-old} 같은 곁다리 하나가
      * {@code Integer.parseInt}에서 {@link NumberFormatException}으로 터지고,

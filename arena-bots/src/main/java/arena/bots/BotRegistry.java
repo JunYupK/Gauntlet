@@ -4,6 +4,7 @@ import arena.bots.baseline.RandomBot;
 import arena.bots.baseline.StraightBot;
 import arena.bots.baseline.WallAvoidBot;
 import arena.bots.gen.Gen00Bot;
+import arena.bots.gen.Gen01Bot;
 
 import java.util.Comparator;
 import java.util.HashSet;
@@ -65,7 +66,8 @@ public final class BotRegistry {
     private static final Pattern GENERATION_NAME = Pattern.compile("Gen\\d+Bot");
 
     private static final List<Bot> GENERATIONS = List.of(
-            new Gen00Bot()
+            new Gen00Bot(),
+            new Gen01Bot()
             // 세대가 승격될 때마다 여기에 추가한다.
     );
 
@@ -176,6 +178,27 @@ public final class BotRegistry {
         return generations.stream()
                 .max(Comparator.comparingInt(BotRegistry::generationNumber))
                 .orElseThrow(() -> new IllegalStateException("등록된 세대 봇이 없다"));
+    }
+
+    /**
+     * 도전자 세대보다 번호가 낮은 최고 세대 = 이번 챔피언. {@code GENERATIONS}로
+     * 부른다. {@code latestGeneration()}(=가장 높은 등록 세대)을 쓰지 않는
+     * 이유는, 도전자 {@code GenN}이 붙으려면 그 자신이 등록돼 있어야 하고
+     * 그러면 {@code latestGeneration()}도 {@code GenN}이 되어 도전자==챔피언이
+     * 되기 때문이다. 실제 증분 루프에선 {@code GenN}이 {@code GenN-1}과
+     * 붙어야 한다.
+     */
+    public static Bot championFor(Bot challenger) {
+        return championFor(challenger, GENERATIONS);
+    }
+
+    static Bot championFor(Bot challenger, List<Bot> generations) {
+        int challengerGen = generationNumber(challenger);
+        return generations.stream()
+                .filter(b -> generationNumber(b) < challengerGen)
+                .max(Comparator.comparingInt(BotRegistry::generationNumber))
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "챔피언이 없다 — " + challenger.name() + "보다 낮은 세대가 등록돼 있지 않다"));
     }
 
     public static List<Bot> baselines() {
